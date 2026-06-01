@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+// Polyfill fetch for older Node versions
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const app = express();
@@ -19,6 +20,7 @@ app.post('/api/guest', (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
+  // Send SSE headers immediately
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -88,10 +90,13 @@ app.post('/api/chat', async (req, res) => {
           if (content) {
             res.write(`data: ${JSON.stringify({ chunk: content })}\n\n`);
           }
-        } catch (e) {}
+        } catch (e) {
+          // Ignore malformed JSON lines
+        }
       }
     }
 
+    // Fallback in case [DONE] never arrives
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
 
