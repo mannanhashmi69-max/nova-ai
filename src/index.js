@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fetch = require('node-fetch');
 
 const app = express();
 app.use(cors());
@@ -21,45 +20,13 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  const sendError = (msg) => {
-    res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
-    res.end();
-  };
-
-  try {
-    const userMessage = req.body.message;
-    if (!userMessage) return sendError('Message is required');
-
-    const response = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'openai',
-        messages: [
-          { role: 'system', content: 'You are Nova AI, a helpful and concise assistant.' },
-          { role: 'user', content: userMessage }
-        ]
-      })
-    });
-
-    if (!response.ok) return sendError(`AI error: ${response.status}`);
-
-    const data = await response.json();
-    const aiReply = data.choices?.[0]?.message?.content || 'Sorry, no response.';
-
-    const words = aiReply.split(' ');
-    for (const word of words) {
-      res.write(`data: ${JSON.stringify({ chunk: word + ' ' })}\n\n`);
-      await new Promise(r => setTimeout(r, 30));
-    }
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-    res.end();
-  } catch (error) {
-    console.error('Chat error:', error.message);
-    sendError('AI service temporarily unavailable. Please try again.');
+  const echo = `Echo: ${req.body.message}`;
+  for (const char of echo) {
+    res.write(`data: ${JSON.stringify({ chunk: char })}\n\n`);
+    await new Promise(r => setTimeout(r, 30));
   }
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  res.end();
 });
 
 app.get('*', (req, res) => {
