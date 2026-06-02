@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Nova AI — Your Intelligent Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght=400;600;700;800&family=DM+Mono:wght=300;400;500&display=swap" rel="stylesheet"/>
 <style>
 /* ═══════════════════════════════════════
    TOKENS & RESET
@@ -42,22 +42,18 @@ body {
   position:relative;
 }
 
-/* ═══════════════════════════════════════
-   ANIMATED BACKGROUND
-═══════════════════════════════════════ */
+/* ANIMATED BACKGROUND */
 .bg-canvas {
   position:fixed; inset:0; z-index:0; pointer-events:none;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(124,77,255,0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 80% 90%, rgba(0,198,255,0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 40% 60% at 50% 50%, rgba(26,15,50,0.5) 0%, transparent 70%),
-    var(--bg);
+  background: radial-gradient(ellipse 80% 50% at 20% 10%, rgba(124,77,255,0.12) 0%, transparent 60%),
+              radial-gradient(ellipse 60% 40% at 80% 90%, rgba(0,198,255,0.08) 0%, transparent 50%),
+              radial-gradient(ellipse 40% 60% at 50% 50%, rgba(26,15,50,0.5) 0%, transparent 70%),
+              var(--bg);
 }
 .grid-overlay {
   position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.025;
-  background-image:
-    linear-gradient(rgba(124,77,255,0.8) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(124,77,255,0.8) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(124,77,255,0.8) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(124,77,255,0.8) 1px, transparent 1px);
   background-size: 60px 60px;
 }
 .orb {
@@ -68,14 +64,10 @@ body {
 .orb-2 { width:300px; height:300px; bottom:-50px; right:-60px; background:rgba(0,198,255,0.07); animation-delay:-5s; }
 @keyframes orb-float { from{transform:translate(0,0) scale(1)} to{transform:translate(30px,20px) scale(1.05)} }
 
-/* ═══════════════════════════════════════
-   LAYOUT
-═══════════════════════════════════════ */
+/* LAYOUT */
 #app { display:flex; width:100%; height:100vh; position:relative; z-index:1; }
 
-/* ═══════════════════════════════════════
-   SIDEBAR
-═══════════════════════════════════════ */
+/* SIDEBAR */
 #sidebar {
   width:var(--sidebar-w);
   min-width:var(--sidebar-w);
@@ -123,8 +115,7 @@ body {
   transition:all var(--trans); letter-spacing:0.3px;
   position:relative; overflow:hidden;
 }
-.new-chat-btn::before {
-  content:''; position:absolute; inset:0;
+.new-chat-btn::before { content:''; position:absolute; inset:0;
   background:linear-gradient(135deg,var(--p1),var(--b1));
   opacity:0; transition:opacity var(--trans);
 }
@@ -137,17 +128,15 @@ body {
   color:var(--text3); letter-spacing:2px; text-transform:uppercase;
   padding:14px 8px 8px; user-select:none;
 }
-
 .conv-list { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:3px; }
 .conv-list::-webkit-scrollbar { width:3px; }
 .conv-list::-webkit-scrollbar-track { background:transparent; }
 .conv-list::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
-
 .conv-item {
   display:flex; align-items:center; gap:8px;
   padding:9px 10px; border-radius:10px;
   cursor:pointer; border:1px solid transparent;
-  transition:all var(--trans); group: true;
+  transition:all var(--trans);
 }
 .conv-item:hover { background:var(--glass2); border-color:var(--border); }
 .conv-item.active { background:rgba(124,77,255,0.12); border-color:var(--border2); }
@@ -187,9 +176,7 @@ body {
 }
 .logout-btn:hover { color:#ff6b6b; background:rgba(255,107,107,0.1); }
 
-/* ═══════════════════════════════════════
-   MAIN AREA
-═══════════════════════════════════════ */
+/* MAIN AREA */
 #main {
   flex:1; display:flex; flex-direction:column; height:100vh;
   overflow:hidden; position:relative;
@@ -215,7 +202,7 @@ body {
   color:var(--text2); flex:1;
 }
 .topbar-title span { color:var(--text); }
-.topbar-actions { display:flex; gap:8px; }
+.topbar-actions { display:flex; gap:8px; align-items:center; }
 .action-btn {
   display:flex; align-items:center; gap:6px;
   padding:8px 14px; border-radius:var(--r);
@@ -293,6 +280,7 @@ body {
 .msg-bubble {
   max-width:72%; padding:12px 16px; border-radius:var(--r2);
   font-size:14px; line-height:1.65; font-family:'DM Mono',monospace; font-weight:300;
+  word-break: break-word;
 }
 .msg.user .msg-bubble {
   background:linear-gradient(135deg,rgba(124,77,255,0.3),rgba(124,77,255,0.15));
@@ -304,7 +292,7 @@ body {
   backdrop-filter:blur(10px); border-bottom-left-radius:4px;
   color:var(--text);
 }
-/* Markdown in messages */
+/* Markdown */
 .msg-bubble strong { color:var(--p2); font-weight:600; }
 .msg-bubble em { color:var(--b1); font-style:italic; }
 .msg-bubble code {
@@ -317,8 +305,7 @@ body {
   overflow-x:auto; font-size:12px; line-height:1.7; color:#a8c7ff;
 }
 .msg-bubble pre code { background:none; border:none; padding:0; color:inherit; }
-.msg-bubble ul,
-.msg-bubble ol { padding-left:18px; margin:6px 0; }
+.msg-bubble ul, .msg-bubble ol { padding-left:18px; margin:6px 0; }
 .msg-bubble li { margin:3px 0; }
 
 /* TYPING INDICATOR */
@@ -369,6 +356,34 @@ body {
 #msg-input::placeholder { color:var(--text3); }
 #msg-input::-webkit-scrollbar { width:3px; }
 #msg-input::-webkit-scrollbar-thumb { background:var(--border2); }
+
+/* Mic button & send button */
+.mic-btn {
+  background:none;
+  border:none;
+  color:var(--text2);
+  cursor:pointer;
+  font-size:20px;
+  width:38px;
+  height:38px;
+  border-radius:50%;
+  transition:all var(--trans);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+}
+.mic-btn:hover { color:var(--p1); background:var(--glass); }
+.mic-btn.recording {
+  color:#ff4a4a !important;
+  background: rgba(255, 74, 74, 0.1);
+  animation: pulse-mic 1.5s infinite;
+}
+@keyframes pulse-mic {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 74, 74, 0.5); }
+  70% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(255, 74, 74, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 74, 74, 0); }
+}
 #send-btn {
   width:38px; height:38px; border-radius:11px; flex-shrink:0;
   background:linear-gradient(135deg,var(--p1),var(--b1));
@@ -384,9 +399,7 @@ body {
   font-size:10px; color:var(--text3); margin-top:8px; letter-spacing:0.3px;
 }
 
-/* ═══════════════════════════════════════
-   LOGIN OVERLAY
-═══════════════════════════════════════ */
+/* LOGIN OVERLAY */
 #login-overlay {
   position:fixed; inset:0; z-index:100;
   background:rgba(3,5,8,0.92);
@@ -443,9 +456,7 @@ body {
 .login-note { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3);
   margin-top:16px; letter-spacing:0.3px; }
 
-/* ═══════════════════════════════════════
-   MODALS
-═══════════════════════════════════════ */
+/* MODALS */
 .modal-overlay {
   position:fixed; inset:0; z-index:50;
   background:rgba(3,5,8,0.85);
@@ -526,9 +537,7 @@ body {
   cursor:pointer; font-size:14px; transition:color var(--trans); }
 .file-item-del:hover { color:#ff6b6b; }
 
-/* ═══════════════════════════════════════
-   MOBILE RESPONSIVE
-═══════════════════════════════════════ */
+/* MOBILE */
 .sidebar-backdrop {
   display:none; position:fixed; inset:0; z-index:9;
   background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);
@@ -539,7 +548,7 @@ body {
     transform:translateX(-100%);
   }
   #sidebar.open { transform:translateX(0); }
-  .hamburger { display:flex; align-items:center; justify-content:center; }
+  .hamburger { display:flex; }
   .sidebar-backdrop.show { display:block; }
   .topbar-actions .action-btn .btn-label { display:none; }
   .msg-bubble { max-width:88%; }
@@ -550,9 +559,7 @@ body {
   .login-card { padding:30px 20px; }
 }
 
-/* ═══════════════════════════════════════
-   TOAST NOTIFICATION
-═══════════════════════════════════════ */
+/* TOAST */
 #toast {
   position:fixed; bottom:90px; left:50%; transform:translateX(-50%) translateY(20px);
   background:rgba(13,18,32,0.95); border:1px solid var(--border2);
@@ -563,38 +570,31 @@ body {
 }
 #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 
-/* Scrollbar universal */
+/* Scrollbar */
 * { scrollbar-width:thin; scrollbar-color:rgba(124,77,255,0.3) transparent; }
 </style>
 </head>
 <body>
 
-<!-- BACKGROUND -->
 <div class="bg-canvas"></div>
 <div class="grid-overlay"></div>
 <div class="orb orb-1"></div>
 <div class="orb orb-2"></div>
 
-<!-- SIDEBAR BACKDROP (mobile) -->
 <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeSidebar()"></div>
 
-<!-- APP -->
 <div id="app">
 
-  <!-- SIDEBAR -->
   <aside id="sidebar">
     <div class="sidebar-logo">
       <div class="logo-icon">✦</div>
       <span class="logo-text">Nova AI</span>
       <span class="logo-badge">BETA</span>
     </div>
-
     <button class="new-chat-btn" onclick="newChat()">
       <span>＋</span><span>New conversation</span>
     </button>
-
     <div class="section-label">Recent</div>
-
     <div class="conv-list" id="conv-list">
       <div class="conv-item active">
         <span class="conv-icon">💬</span>
@@ -612,7 +612,6 @@ body {
         <span class="conv-del" onclick="deleteConv(this)" title="Delete">✕</span>
       </div>
     </div>
-
     <div class="sidebar-footer">
       <div class="user-row" id="user-row">
         <div class="avatar" id="user-avatar">G</div>
@@ -625,14 +624,13 @@ body {
     </div>
   </aside>
 
-  <!-- MAIN -->
   <main id="main">
 
-    <!-- TOPBAR -->
     <header id="topbar">
       <button class="hamburger" onclick="toggleSidebar()">☰</button>
       <div class="topbar-title">✦ <span>Nova AI</span></div>
       <div class="topbar-actions">
+        <button id="speaker-btn" class="action-btn" onclick="toggleSpeech()" title="Toggle voice output">🔊 <span class="btn-label">Speak OFF</span></button>
         <button class="action-btn" onclick="openModal('image-modal')">
           🎨 <span class="btn-label">Generate Image</span>
         </button>
@@ -642,9 +640,7 @@ body {
       </div>
     </header>
 
-    <!-- CHAT -->
     <div id="chat-area">
-      <!-- Welcome screen (shown before first message) -->
       <div id="welcome">
         <div class="welcome-icon">✦</div>
         <div class="welcome-title">What can I help<br>you with today?</div>
@@ -656,11 +652,8 @@ body {
           <button class="chip" onclick="fillChip('Explain a complex concept simply')">🔭 Explain a concept</button>
         </div>
       </div>
-
-      <!-- Messages injected here -->
     </div>
 
-    <!-- TYPING INDICATOR (lives outside chat-area for clean layout) -->
     <div style="padding:0 20px 8px; flex-shrink:0;">
       <div id="typing-indicator">
         <div class="msg-avatar" style="background:linear-gradient(135deg,var(--p1),var(--b1));box-shadow:0 0 10px var(--glow);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;">✦</div>
@@ -670,23 +663,18 @@ body {
       </div>
     </div>
 
-    <!-- INPUT -->
     <div id="input-section">
       <div id="input-wrap">
-        <textarea id="msg-input"
-          rows="1"
-          placeholder="Message Nova AI…"
-          onkeydown="handleKey(event)"
-          oninput="autoResize(this)"></textarea>
-        <button id="send-btn" onclick="sendMessage()" title="Send (Enter)">➤</button>
+        <textarea id="msg-input" rows="1" placeholder="Message Nova AI…" onkeydown="handleKey(event)" oninput="autoResize(this)" aria-label="Message input"></textarea>
+        <button id="mic-btn" class="mic-btn" onclick="toggleVoiceInput()" title="Voice input" aria-label="Voice input">🎙️</button>
+        <button id="send-btn" onclick="sendMessage()" title="Send (Enter)" aria-label="Send message">➤</button>
       </div>
       <div class="input-footer">Nova AI may make mistakes. Verify important information.</div>
     </div>
 
   </main>
-</div><!-- #app -->
+</div>
 
-<!-- ─── LOGIN OVERLAY ────────────────── -->
 <div id="login-overlay">
   <div class="login-card">
     <span class="login-logo">✦</span>
@@ -700,7 +688,6 @@ body {
   </div>
 </div>
 
-<!-- ─── IMAGE GENERATION MODAL ───────── -->
 <div class="modal-overlay" id="image-modal">
   <div class="modal">
     <div class="modal-header">
@@ -708,8 +695,7 @@ body {
       <button class="modal-close" onclick="closeModal('image-modal')">✕</button>
     </div>
     <label class="modal-label">Describe your image</label>
-    <textarea class="modal-input" id="img-prompt" rows="3"
-      placeholder="A futuristic city at night with neon lights and flying cars…"></textarea>
+    <textarea class="modal-input" id="img-prompt" rows="3" placeholder="A futuristic city at night with neon lights and flying cars…"></textarea>
     <label class="modal-label">Image size</label>
     <select class="modal-select" id="img-size">
       <option value="256">256 × 256 — Fast</option>
@@ -724,7 +710,6 @@ body {
   </div>
 </div>
 
-<!-- ─── FILE UPLOAD MODAL ─────────────── -->
 <div class="modal-overlay" id="file-modal">
   <div class="modal">
     <div class="modal-header">
@@ -732,9 +717,7 @@ body {
       <button class="modal-close" onclick="closeModal('file-modal')">✕</button>
     </div>
     <label class="modal-label">Choose file</label>
-    <input type="file" class="modal-input" id="file-input"
-      accept=".txt,.pdf,.csv,.json,.md,.png,.jpg,.jpeg"
-      onchange="handleFileSelect(this)" style="cursor:pointer;"/>
+    <input type="file" class="modal-input" id="file-input" accept=".txt,.pdf,.csv,.json,.md,.png,.jpg,.jpeg" onchange="handleFileSelect(this)" style="cursor:pointer;"/>
     <button class="modal-btn" onclick="uploadFile()">📤 Upload File</button>
     <div class="file-list" id="file-list">
       <div class="file-item">
@@ -751,23 +734,30 @@ body {
   </div>
 </div>
 
-<!-- TOAST -->
 <div id="toast"></div>
 
-<!-- ═══════════════════════════════════════
-     JAVASCRIPT
-═══════════════════════════════════════ -->
 <script>
 /* ── State ── */
 let isLoggedIn  = false;
 let isStreaming = false;
-let msgHistory  = [];   // { role, content }[]
+let msgHistory  = [];
 
-/* ── Startup: check if already logged in ── */
+/* ── Voice chat globals ── */
+let recognition = null;
+let isListening = false;
+let isSpeechEnabled = false;
+
+/* ── Startup ── */
 window.addEventListener('DOMContentLoaded', () => {
   const token = sessionStorage.getItem('nova_token');
   if (token) finishLogin(sessionStorage.getItem('nova_user') || 'Guest');
-  autoResize(document.getElementById('msg-input'));
+  initSpeechRecognition();
+  
+  // Prime system sound engines
+  if (window.speechSynthesis) {
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+  }
 });
 
 /* ══════════════════════════════════════
@@ -791,15 +781,16 @@ async function guestLogin() {
     showToast('⚠️ Connection error — retrying…');
   }
 }
-
 function finishLogin(username) {
   isLoggedIn = true;
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('user-display-name').textContent = username;
   document.getElementById('user-avatar').textContent = username[0].toUpperCase();
-  document.getElementById('msg-input').focus();
+  
+  const input = document.getElementById('msg-input');
+  autoResize(input);
+  input.focus();
 }
-
 function logout() {
   sessionStorage.clear();
   location.reload();
@@ -814,66 +805,51 @@ function fillChip(text) {
   autoResize(input);
   input.focus();
 }
-
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     if (!isStreaming) sendMessage();
   }
 }
-
 async function sendMessage() {
   if (!isLoggedIn) { showToast('Please log in first'); return; }
-  const input   = document.getElementById('msg-input');
+  const input = document.getElementById('msg-input');
   const message = input.value.trim();
   if (!message || isStreaming) return;
 
-  // Hide welcome screen on first message
+  // Safari Speech Engine Sandbox Unlock Trigger
+  safariSpeechUnlock();
+
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.remove();
-
   input.value = '';
   autoResize(input);
   isStreaming = true;
   document.getElementById('send-btn').disabled = true;
-
-  // Add user message
   msgHistory.push({ role:'user', content:message });
   appendMessage('user', message);
-
-  // Show typing indicator
   const typing = document.getElementById('typing-indicator');
   typing.classList.add('show');
   scrollToBottom();
-
-  // Create assistant bubble (empty, will fill via SSE)
   const assistantId = 'msg-' + Date.now();
-  let   fullReply   = '';
-
+  let fullReply = '';
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        message,
-        history: msgHistory.slice(-10)
-      })
+      body: JSON.stringify({ message, history: msgHistory.slice(-10) })
     });
-
     if (!res.ok) throw new Error(`Server error: ${res.status}`);
-
-    const reader  = res.body.getReader();
+    const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let   buffer  = '';
-    let   bubbleCreated = false;
-
+    let buffer = '';
+    let bubbleCreated = false;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream:true });
       const lines = buffer.split('\n');
       buffer = lines.pop();
-
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         try {
@@ -895,6 +871,7 @@ async function sendMessage() {
           }
           if (data.done) {
             msgHistory.push({ role:'assistant', content:fullReply });
+            if (isSpeechEnabled && fullReply) speakText(fullReply);
           }
         } catch(_) {}
       }
@@ -903,53 +880,44 @@ async function sendMessage() {
     typing.classList.remove('show');
     appendMessage('assistant', '⚠️ Could not reach Nova AI. Please try again.');
   }
-
   typing.classList.remove('show');
   isStreaming = false;
   document.getElementById('send-btn').disabled = false;
   input.focus();
   scrollToBottom();
 }
-
-/* ── DOM helpers ── */
 function appendMessage(role, text) {
   const area = document.getElementById('chat-area');
-  const id   = 'msg-' + Date.now();
-  const div  = document.createElement('div');
+  const id = 'msg-' + Date.now();
+  const div = document.createElement('div');
   div.className = `msg ${role}`;
   div.id = id;
-  div.innerHTML = `
-    <div class="msg-avatar">${role === 'user' ? '👤' : '✦'}</div>
-    <div class="msg-bubble">${renderMarkdown(text)}</div>`;
+  div.innerHTML = `<div class="msg-avatar">${role === 'user' ? '👤' : '✦'}</div><div class="msg-bubble">${renderMarkdown(text)}</div>`;
   area.appendChild(div);
   scrollToBottom();
   return id;
 }
-
 function createAssistantBubble(id) {
   const area = document.getElementById('chat-area');
-  const div  = document.createElement('div');
+  const div = document.createElement('div');
   div.className = 'msg assistant';
   div.id = id;
   div.innerHTML = `<div class="msg-avatar">✦</div><div class="msg-bubble"></div>`;
   area.appendChild(div);
 }
-
 function updateBubble(id, text) {
   const el = document.getElementById(id);
   if (el) el.querySelector('.msg-bubble').innerHTML = renderMarkdown(text);
 }
-
 function scrollToBottom() {
   const area = document.getElementById('chat-area');
   area.scrollTop = area.scrollHeight;
 }
-
 function newChat() {
   msgHistory = [];
+  window.speechSynthesis.cancel();
   const area = document.getElementById('chat-area');
-  area.innerHTML = `
-    <div id="welcome" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;padding:40px 20px;animation:fadeUp 0.6s ease both;">
+  area.innerHTML = `<div id="welcome">
       <div class="welcome-icon">✦</div>
       <div class="welcome-title">What can I help<br>you with today?</div>
       <div class="welcome-sub">Ask me anything — from code and writing to analysis and creative ideas.</div>
@@ -964,38 +932,43 @@ function newChat() {
   document.getElementById('msg-input').focus();
   showToast('✦ New conversation started');
 }
-
 function deleteConv(el) {
   el.closest('.conv-item').remove();
-  console.log('Conversation deleted (UI only)');
 }
 
-/* ── Markdown renderer (no library) ── */
+// Optimized Tokenized Markdown Engine
 function renderMarkdown(text) {
-  return text
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/^### (.+)$/gm, '<strong style="font-size:1.05em;color:var(--p2)">$1</strong>')
-    .replace(/^## (.+)$/gm, '<strong style="font-size:1.1em;color:var(--p2)">$1</strong>')
-    .replace(/^# (.+)$/gm, '<strong style="font-size:1.15em;color:var(--p2)">$1</strong>')
-    .replace(/^\- (.+)$/gm, '• $1')
-    .replace(/\n/g,'<br>');
-}
+  let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  
+  // Protect Multi-line code blocks from inline processing loops
+  const codeBlocks = [];
+  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
+    codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
+    return `__NOVA_CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
 
-/* ══════════════════════════════════════
-   TEXTAREA AUTO-RESIZE
-══════════════════════════════════════ */
+  // Render Inline Structural Elements
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+             .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+             .replace(/^### (.+)$/gm, '<strong style="font-size:1.05em;color:var(--p2)">$1</strong>')
+             .replace(/^## (.+)$/gm, '<strong style="font-size:1.1em;color:var(--p2)">$1</strong>')
+             .replace(/^# (.+)$/gm, '<strong style="font-size:1.15em;color:var(--p2)">$1</strong>')
+             .replace(/^\- (.+)$/gm, '• $1')
+             .replace(/\n/g,'<br>');
+
+  // Re-inject pristine structural code blocks
+  codeBlocks.forEach((block, index) => {
+    html = html.replace(`__NOVA_CODE_BLOCK_${index}__`, block);
+  });
+
+  return html;
+}
 function autoResize(el) {
+  if(!el) return;
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 140) + 'px';
 }
-
-/* ══════════════════════════════════════
-   SIDEBAR (mobile)
-══════════════════════════════════════ */
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('sidebar-backdrop').classList.toggle('show');
@@ -1004,34 +977,27 @@ function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-backdrop').classList.remove('show');
 }
-
-/* ══════════════════════════════════════
-   MODALS
-══════════════════════════════════════ */
 function openModal(id) {
   document.getElementById(id).classList.add('open');
 }
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
-// Close modal on backdrop click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) overlay.classList.remove('open');
-  });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 });
 
 /* ── Image generation ── */
 function generateImage() {
   const prompt = document.getElementById('img-prompt').value.trim();
-  const size   = document.getElementById('img-size').value;
+  const size = document.getElementById('img-size').value;
   const result = document.getElementById('img-result');
   if (!prompt) { showToast('Please enter an image description'); return; }
-  result.innerHTML = '<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div><span style="font-family:DM Mono,monospace;font-size:12px;color:var(--text3)">Generating…</span>';
+  result.innerHTML = '<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div><span>Generating…</span>';
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true`;
   const img = new Image();
   img.onload  = () => { result.innerHTML = ''; result.style.border='none'; result.appendChild(img); img.style.cssText='width:100%;border-radius:var(--r);display:block;'; };
-  img.onerror = () => { result.innerHTML = '<div class="placeholder-icon">❌</div><span style="font-family:DM Mono,monospace;font-size:12px;color:var(--text3)">Generation failed. Try again.</span>'; };
+  img.onerror = () => { result.innerHTML = '<div class="placeholder-icon">❌</div><span>Generation failed. Try again.</span>'; };
   img.src = url;
 }
 
@@ -1042,7 +1008,7 @@ function uploadFile() {
   if (!selectedFile) { showToast('Please choose a file first'); return; }
   const list = document.getElementById('file-list');
   const icons = { pdf:'📕', txt:'📝', csv:'📊', json:'⚙️', md:'📋', png:'🖼️', jpg:'🖼️', jpeg:'🖼️' };
-  const ext  = selectedFile.name.split('.').pop().toLowerCase();
+  const ext = selectedFile.name.split('.').pop().toLowerCase();
   const icon = icons[ext] || '📄';
   const item = document.createElement('div');
   item.className = 'file-item';
@@ -1055,8 +1021,110 @@ function uploadFile() {
 function removeFile(btn) { btn.closest('.file-item').remove(); }
 
 /* ══════════════════════════════════════
-   TOAST
+   VOICE CHAT (Web Speech API Integration)
 ══════════════════════════════════════ */
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('Speech recognition fallback activated: API unsupported on this browser agent.');
+    const micBtn = document.getElementById('mic-btn');
+    if (micBtn) micBtn.style.display = 'none';
+    return;
+  }
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    const input = document.getElementById('msg-input');
+    if (input) {
+      input.value = transcript;
+      autoResize(input);
+      sendMessage();
+    }
+  };
+  recognition.onerror = (event) => {
+    if(event.error !== 'no-speech') {
+      console.error('Speech recognition exception:', event.error);
+      showToast('⚠️ Audio capture context error');
+    }
+    resetMicUI();
+  };
+  recognition.onend = () => {
+    resetMicUI();
+  };
+}
+
+function toggleVoiceInput() {
+  if (!recognition) {
+    showToast('⚠️ Voice processing missing on this device browser');
+    return;
+  }
+  safariSpeechUnlock();
+  if (isListening) {
+    recognition.stop();
+  } else {
+    try {
+      recognition.start();
+      isListening = true;
+      document.getElementById('mic-btn').classList.add('recording');
+      showToast('🎙️ Nova Listening...');
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
+function resetMicUI() {
+  isListening = false;
+  const btn = document.getElementById('mic-btn');
+  if (btn) btn.classList.remove('recording');
+}
+
+function safariSpeechUnlock() {
+  // Synchronous Web Audio Sandbox Bypass for Mobile iOS and Safari Desktop
+  if (isSpeechEnabled && window.speechSynthesis) {
+    const emptyUtterance = new SpeechSynthesisUtterance('');
+    window.speechSynthesis.speak(emptyUtterance);
+  }
+}
+
+function speakText(text) {
+  if (!window.speechSynthesis || !isSpeechEnabled) return;
+  window.speechSynthesis.cancel(); // Halt lingering queues
+  
+  // Strip Markdown markers entirely before passing down to system speech synthesizer
+  const cleanText = text.replace(/[*#_`~]/g, '').replace(/__NOVA_CODE_BLOCK_\d+__/g, '[Code Block omitted]');
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+  utterance.lang = 'en-US';
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+
+  // Attempt selection of high-fidelity modern natural voices if available on device
+  const voices = window.speechSynthesis.getVoices();
+  const premiumVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
+  if (premiumVoice) utterance.voice = premiumVoice;
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function toggleSpeech() {
+  isSpeechEnabled = !isSpeechEnabled;
+  const speakerBtn = document.getElementById('speaker-btn');
+  if (isSpeechEnabled) {
+    speakerBtn.innerHTML = '🔊 <span class="btn-label">Speak ON</span>';
+    showToast('🔊 Nova audio feedback active');
+    safariSpeechUnlock();
+  } else {
+    speakerBtn.innerHTML = '🔊 <span class="btn-label">Speak OFF</span>';
+    showToast('🔇 Audio output muted');
+    window.speechSynthesis.cancel();
+  }
+}
+
+/* ── Toast ── */
 let toastTimer;
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -1065,6 +1133,6 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
 }
-    </script>
+</script>
 </body>
 </html>
