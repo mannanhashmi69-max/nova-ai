@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Nova AI — Your Intelligent Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght=400;600;700;800&family=DM+Mono:wght=300;400;500&display=swap" rel="stylesheet"/>
+<!-- FIXED Google Fonts URL (wght@ not wght=) -->
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500&display=swap" rel="stylesheet"/>
 <style>
 /* ═══════════════════════════════════════
    TOKENS & RESET
@@ -634,6 +635,10 @@ body {
         <button class="action-btn" onclick="openModal('image-modal')">
           🎨 <span class="btn-label">Generate Image</span>
         </button>
+        <!-- Video button added -->
+        <button class="action-btn" onclick="openModal('video-modal')">
+          🎬 <span class="btn-label">Generate Video</span>
+        </button>
         <button class="action-btn" onclick="openModal('file-modal')">
           📎 <span class="btn-label">Upload File</span>
         </button>
@@ -688,6 +693,7 @@ body {
   </div>
 </div>
 
+<!-- Image Modal -->
 <div class="modal-overlay" id="image-modal">
   <div class="modal">
     <div class="modal-header">
@@ -710,6 +716,26 @@ body {
   </div>
 </div>
 
+<!-- Video Modal (added) -->
+<div class="modal-overlay" id="video-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🎬 Generate Video</div>
+      <button class="modal-close" onclick="closeModal('video-modal')">✕</button>
+    </div>
+    <label class="modal-label">Describe your video</label>
+    <textarea class="modal-input" id="video-prompt" rows="3" placeholder="A futuristic city with flying cars at sunset…" maxlength="500"></textarea>
+    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-bottom:14px;">Free via Hugging Face · Takes 30–90 sec · 2 sec clip</div>
+    <button class="modal-btn" id="video-gen-btn" onclick="generateVideo()">🎬 Generate Video</button>
+    <div id="video-status" style="display:none;margin-top:16px;background:var(--glass);border:1px solid var(--border);border-radius:var(--r);padding:14px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text2);text-align:center;"></div>
+    <div id="video-result" style="display:none;margin-top:14px;">
+      <video id="video-player" controls style="width:100%;border-radius:var(--r);border:1px solid var(--border2);background:#000;"></video>
+      <button class="modal-btn" style="margin-top:10px;background:var(--glass);border:1px solid var(--border2);color:var(--text);" onclick="downloadVideo()">⬇️ Download Video</button>
+    </div>
+  </div>
+</div>
+
+<!-- File Modal -->
 <div class="modal-overlay" id="file-modal">
   <div class="modal">
     <div class="modal-header">
@@ -736,28 +762,33 @@ body {
 
 <div id="toast"></div>
 
+<!-- FIXED SCRIPT (replaces old one) -->
 <script>
 /* ── State ── */
-let isLoggedIn  = false;
-let isStreaming = false;
-let msgHistory  = [];
-
-/* ── Voice chat globals ── */
-let recognition = null;
-let isListening = false;
-let isSpeechEnabled = false;
+let isLoggedIn      = false;
+let isStreaming      = false;
+let msgHistory       = [];
+let recognition      = null;
+let isListening      = false;
+let isSpeechEnabled  = false;
+let videoPollingTimer = null;
+let currentVideoUrl  = null;
 
 /* ── Startup ── */
 window.addEventListener('DOMContentLoaded', () => {
   const token = sessionStorage.getItem('nova_token');
   if (token) finishLogin(sessionStorage.getItem('nova_user') || 'Guest');
+  autoResize(document.getElementById('msg-input'));
   initSpeechRecognition();
-  
-  // Prime system sound engines
   if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
-    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
   }
+});
+
+// Fix Bug 4: clear timer on unload
+window.addEventListener('beforeunload', () => {
+  if (videoPollingTimer) clearInterval(videoPollingTimer);
 });
 
 /* ══════════════════════════════════════
@@ -774,24 +805,26 @@ async function guestLogin() {
       sessionStorage.setItem('nova_token', data.token);
       sessionStorage.setItem('nova_user',  data.username);
       finishLogin(data.username);
-    } else { throw new Error('Login failed'); }
-  } catch(e) {
+    } else throw new Error('Login failed');
+  } catch {
     btn.disabled = false;
     btn.querySelector('span').textContent = '🚀 Continue as Guest';
     showToast('⚠️ Connection error — retrying…');
   }
 }
+
 function finishLogin(username) {
   isLoggedIn = true;
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('user-display-name').textContent = username;
   document.getElementById('user-avatar').textContent = username[0].toUpperCase();
-  
   const input = document.getElementById('msg-input');
   autoResize(input);
   input.focus();
 }
+
 function logout() {
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
   sessionStorage.clear();
   location.reload();
 }
@@ -805,51 +838,60 @@ function fillChip(text) {
   autoResize(input);
   input.focus();
 }
+
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     if (!isStreaming) sendMessage();
   }
 }
+
 async function sendMessage() {
   if (!isLoggedIn) { showToast('Please log in first'); return; }
-  const input = document.getElementById('msg-input');
+  const input   = document.getElementById('msg-input');
   const message = input.value.trim();
   if (!message || isStreaming) return;
 
-  // Safari Speech Engine Sandbox Unlock Trigger
   safariSpeechUnlock();
 
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.remove();
+
   input.value = '';
   autoResize(input);
   isStreaming = true;
   document.getElementById('send-btn').disabled = true;
+
   msgHistory.push({ role:'user', content:message });
   appendMessage('user', message);
+
   const typing = document.getElementById('typing-indicator');
   typing.classList.add('show');
   scrollToBottom();
+
   const assistantId = 'msg-' + Date.now();
   let fullReply = '';
+
   try {
     const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ message, history: msgHistory.slice(-10) })
+      method:  'POST',
+      headers: { 'Content-Type':'application/json' },
+      body:    JSON.stringify({ message, history: msgHistory.slice(-10) })
     });
     if (!res.ok) throw new Error(`Server error: ${res.status}`);
-    const reader = res.body.getReader();
+
+    const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let bubbleCreated = false;
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream:true });
       const lines = buffer.split('\n');
       buffer = lines.pop();
+
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         try {
@@ -876,48 +918,63 @@ async function sendMessage() {
         } catch(_) {}
       }
     }
-  } catch(err) {
+  } catch {
     typing.classList.remove('show');
     appendMessage('assistant', '⚠️ Could not reach Nova AI. Please try again.');
   }
+
   typing.classList.remove('show');
   isStreaming = false;
   document.getElementById('send-btn').disabled = false;
   input.focus();
   scrollToBottom();
 }
+
 function appendMessage(role, text) {
   const area = document.getElementById('chat-area');
-  const id = 'msg-' + Date.now();
-  const div = document.createElement('div');
+  const id   = 'msg-' + Date.now();
+  const div  = document.createElement('div');
   div.className = `msg ${role}`;
   div.id = id;
-  div.innerHTML = `<div class="msg-avatar">${role === 'user' ? '👤' : '✦'}</div><div class="msg-bubble">${renderMarkdown(text)}</div>`;
+  div.innerHTML = `
+    <div class="msg-avatar">${role === 'user' ? '👤' : '✦'}</div>
+    <div class="msg-bubble">${renderMarkdown(text)}</div>`;
   area.appendChild(div);
   scrollToBottom();
   return id;
 }
+
 function createAssistantBubble(id) {
   const area = document.getElementById('chat-area');
-  const div = document.createElement('div');
+  const div  = document.createElement('div');
   div.className = 'msg assistant';
   div.id = id;
   div.innerHTML = `<div class="msg-avatar">✦</div><div class="msg-bubble"></div>`;
   area.appendChild(div);
 }
+
 function updateBubble(id, text) {
   const el = document.getElementById(id);
   if (el) el.querySelector('.msg-bubble').innerHTML = renderMarkdown(text);
 }
+
 function scrollToBottom() {
-  const area = document.getElementById('chat-area');
-  area.scrollTop = area.scrollHeight;
+  requestAnimationFrame(() => {
+    const area = document.getElementById('chat-area');
+    area.scrollTop = area.scrollHeight;
+  });
 }
+
+// Fix Bug 2: preserve welcome layout in newChat()
 function newChat() {
   msgHistory = [];
-  window.speechSynthesis.cancel();
+  if (videoPollingTimer) clearInterval(videoPollingTimer);
+  if (window.speechSynthesis) window.speechSynthesis.cancel(); // Fix Bug 3
   const area = document.getElementById('chat-area');
-  area.innerHTML = `<div id="welcome">
+  area.innerHTML = `
+    <div id="welcome" style="display:flex;flex-direction:column;align-items:center;
+      justify-content:center;flex:1;text-align:center;padding:40px 20px;
+      animation:fadeUp 0.6s ease both;">
       <div class="welcome-icon">✦</div>
       <div class="welcome-title">What can I help<br>you with today?</div>
       <div class="welcome-sub">Ask me anything — from code and writing to analysis and creative ideas.</div>
@@ -932,43 +989,49 @@ function newChat() {
   document.getElementById('msg-input').focus();
   showToast('✦ New conversation started');
 }
-function deleteConv(el) {
-  el.closest('.conv-item').remove();
-}
 
-// Optimized Tokenized Markdown Engine
+function deleteConv(el) { el.closest('.conv-item').remove(); }
+
+/* ── Fix Bug 1: extract code blocks BEFORE HTML-escaping ── */
 function renderMarkdown(text) {
-  let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  
-  // Protect Multi-line code blocks from inline processing loops
+  // Step 1: extract code blocks from raw text first
   const codeBlocks = [];
-  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
-    codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
-    return `__NOVA_CODE_BLOCK_${codeBlocks.length - 1}__`;
+  let result = text.replace(/```([\s\S]*?)```/g, (_, code) => {
+    const escaped = code.trim()
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    codeBlocks.push(`<pre><code>${escaped}</code></pre>`);
+    return `\x00CB${codeBlocks.length - 1}\x00`;
   });
 
-  // Render Inline Structural Elements
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-             .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-             .replace(/^### (.+)$/gm, '<strong style="font-size:1.05em;color:var(--p2)">$1</strong>')
-             .replace(/^## (.+)$/gm, '<strong style="font-size:1.1em;color:var(--p2)">$1</strong>')
-             .replace(/^# (.+)$/gm, '<strong style="font-size:1.15em;color:var(--p2)">$1</strong>')
-             .replace(/^\- (.+)$/gm, '• $1')
-             .replace(/\n/g,'<br>');
+  // Step 2: escape HTML in the remaining text
+  result = result
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  // Re-inject pristine structural code blocks
-  codeBlocks.forEach((block, index) => {
-    html = html.replace(`__NOVA_CODE_BLOCK_${index}__`, block);
+  // Step 3: inline markdown
+  result = result
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<strong style="font-size:1.05em;color:var(--p2)">$1</strong>')
+    .replace(/^## (.+)$/gm,  '<strong style="font-size:1.1em;color:var(--p2)">$1</strong>')
+    .replace(/^# (.+)$/gm,   '<strong style="font-size:1.15em;color:var(--p2)">$1</strong>')
+    .replace(/^\- (.+)$/gm,  '• $1')
+    .replace(/\n/g, '<br>');
+
+  // Step 4: restore code blocks
+  codeBlocks.forEach((block, i) => {
+    result = result.replace(`\x00CB${i}\x00`, block);
   });
 
-  return html;
+  return result;
 }
+
 function autoResize(el) {
-  if(!el) return;
+  if (!el) return;
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 140) + 'px';
 }
+
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('sidebar-backdrop').classList.toggle('show');
@@ -977,28 +1040,78 @@ function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-backdrop').classList.remove('show');
 }
-function openModal(id) {
-  document.getElementById(id).classList.add('open');
-}
-function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
-}
+function openModal(id)  { document.getElementById(id).classList.add('open');    }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
 });
 
-/* ── Image generation ── */
-function generateImage() {
+/* ══════════════════════════════════════
+   IMAGE GENERATION
+══════════════════════════════════════ */
+async function generateImage() {
   const prompt = document.getElementById('img-prompt').value.trim();
-  const size = document.getElementById('img-size').value;
+  const size   = document.getElementById('img-size').value;
   const result = document.getElementById('img-result');
+
   if (!prompt) { showToast('Please enter an image description'); return; }
-  result.innerHTML = '<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div><span>Generating…</span>';
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true`;
-  const img = new Image();
-  img.onload  = () => { result.innerHTML = ''; result.style.border='none'; result.appendChild(img); img.style.cssText='width:100%;border-radius:var(--r);display:block;'; };
-  img.onerror = () => { result.innerHTML = '<div class="placeholder-icon">❌</div><span>Generation failed. Try again.</span>'; };
-  img.src = url;
+
+  result.style.cssText = 'border:2px dashed var(--border);aspect-ratio:1;';
+  result.innerHTML = `
+    <div class="placeholder-icon" style="font-size:40px;opacity:0.5;animation:pulse-glow 1s infinite">⏳</div>
+    <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3)">
+      Generating image…
+    </span>`;
+
+  try {
+    const res  = await fetch('/api/image', {
+      method:  'POST',
+      headers: { 'Content-Type':'application/json' },
+      body:    JSON.stringify({ prompt, size })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Generation failed');
+
+    result.innerHTML = '';
+    result.style.cssText = 'border:none;aspect-ratio:auto;';
+
+    const img = document.createElement('img');
+    img.src = data.imageUrl;
+    img.style.cssText = 'width:100%;border-radius:var(--r);display:block;margin-bottom:10px;';
+    img.onerror = () => {
+      result.innerHTML = `<div class="placeholder-icon">❌</div>
+        <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3)">
+          Image failed to load. Try again.
+        </span>`;
+    };
+    result.appendChild(img);
+
+    const badge = document.createElement('div');
+    badge.style.cssText = 'font-family:"DM Mono",monospace;font-size:9px;color:var(--text3);text-align:right;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;';
+    badge.textContent = `via ${data.source || 'AI'}`;
+    result.appendChild(badge);
+
+    const dlBtn = document.createElement('button');
+    dlBtn.className   = 'modal-btn';
+    dlBtn.textContent = '⬇️ Download Image';
+    dlBtn.onclick = () => {
+      const a      = document.createElement('a');
+      a.href       = data.imageUrl;
+      a.download   = `nova-ai-image-${Date.now()}.jpg`;
+      a.click();
+    };
+    result.appendChild(dlBtn);
+
+  } catch (err) {
+    result.innerHTML = `
+      <div class="placeholder-icon">❌</div>
+      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3)">
+        ${err.message}
+      </span>`;
+    showToast('Image failed: ' + err.message);
+  }
 }
 
 /* ── File upload ── */
@@ -1006,13 +1119,15 @@ let selectedFile = null;
 function handleFileSelect(input) { selectedFile = input.files[0]; }
 function uploadFile() {
   if (!selectedFile) { showToast('Please choose a file first'); return; }
-  const list = document.getElementById('file-list');
+  const list  = document.getElementById('file-list');
   const icons = { pdf:'📕', txt:'📝', csv:'📊', json:'⚙️', md:'📋', png:'🖼️', jpg:'🖼️', jpeg:'🖼️' };
-  const ext = selectedFile.name.split('.').pop().toLowerCase();
-  const icon = icons[ext] || '📄';
-  const item = document.createElement('div');
+  const ext   = selectedFile.name.split('.').pop().toLowerCase();
+  const item  = document.createElement('div');
   item.className = 'file-item';
-  item.innerHTML = `<span class="file-item-icon">${icon}</span><span class="file-item-name">${selectedFile.name}</span><button class="file-item-del" onclick="removeFile(this)">✕</button>`;
+  item.innerHTML = `
+    <span class="file-item-icon">${icons[ext] || '📄'}</span>
+    <span class="file-item-name">${selectedFile.name}</span>
+    <button class="file-item-del" onclick="removeFile(this)">✕</button>`;
   list.appendChild(item);
   document.getElementById('file-input').value = '';
   selectedFile = null;
@@ -1021,47 +1136,40 @@ function uploadFile() {
 function removeFile(btn) { btn.closest('.file-item').remove(); }
 
 /* ══════════════════════════════════════
-   VOICE CHAT (Web Speech API Integration)
+   VOICE CHAT
 ══════════════════════════════════════ */
 function initSpeechRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.warn('Speech recognition fallback activated: API unsupported on this browser agent.');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
     const micBtn = document.getElementById('mic-btn');
     if (micBtn) micBtn.style.display = 'none';
     return;
   }
-  recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.lang = 'en-US';
+  recognition = new SR();
+  recognition.continuous      = false;
+  recognition.interimResults  = false;
+  recognition.lang            = 'en-US';
 
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
-    const input = document.getElementById('msg-input');
-    if (input) {
-      input.value = transcript;
-      autoResize(input);
-      sendMessage();
-    }
+    const input      = document.getElementById('msg-input');
+    if (!input) return;
+    input.value = transcript;
+    autoResize(input);
+    // Fix Bug 6: don't auto-send — let user review first
+    input.focus();
+    showToast('🎙️ Tap Send or press Enter to confirm');
   };
+
   recognition.onerror = (event) => {
-    if(event.error !== 'no-speech') {
-      console.error('Speech recognition exception:', event.error);
-      showToast('⚠️ Audio capture context error');
-    }
+    if (event.error !== 'no-speech') showToast('⚠️ Mic error: ' + event.error);
     resetMicUI();
   };
-  recognition.onend = () => {
-    resetMicUI();
-  };
+  recognition.onend = resetMicUI;
 }
 
 function toggleVoiceInput() {
-  if (!recognition) {
-    showToast('⚠️ Voice processing missing on this device browser');
-    return;
-  }
+  if (!recognition) { showToast('⚠️ Voice not supported in this browser'); return; }
   safariSpeechUnlock();
   if (isListening) {
     recognition.stop();
@@ -1070,58 +1178,146 @@ function toggleVoiceInput() {
       recognition.start();
       isListening = true;
       document.getElementById('mic-btn').classList.add('recording');
-      showToast('🎙️ Nova Listening...');
+      showToast('🎙️ Listening… speak now');
     } catch (e) {
-      console.error(e);
+      showToast('⚠️ Could not start mic: ' + e.message);
     }
   }
 }
 
 function resetMicUI() {
   isListening = false;
-  const btn = document.getElementById('mic-btn');
-  if (btn) btn.classList.remove('recording');
+  document.getElementById('mic-btn')?.classList.remove('recording');
 }
 
 function safariSpeechUnlock() {
-  // Synchronous Web Audio Sandbox Bypass for Mobile iOS and Safari Desktop
   if (isSpeechEnabled && window.speechSynthesis) {
-    const emptyUtterance = new SpeechSynthesisUtterance('');
-    window.speechSynthesis.speak(emptyUtterance);
+    const empty = new SpeechSynthesisUtterance('');
+    window.speechSynthesis.speak(empty);
   }
 }
 
+// Fix Bug 5: clean actual markdown from raw text, not tokens
 function speakText(text) {
   if (!window.speechSynthesis || !isSpeechEnabled) return;
-  window.speechSynthesis.cancel(); // Halt lingering queues
-  
-  // Strip Markdown markers entirely before passing down to system speech synthesizer
-  const cleanText = text.replace(/[*#_`~]/g, '').replace(/__NOVA_CODE_BLOCK_\d+__/g, '[Code Block omitted]');
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  utterance.lang = 'en-US';
-  utterance.rate = 1.0;
-  utterance.pitch = 1.0;
-
-  // Attempt selection of high-fidelity modern natural voices if available on device
+  window.speechSynthesis.cancel();
+  const clean = text
+    .replace(/```[\s\S]*?```/g, 'code block.')   // remove code blocks entirely
+    .replace(/`[^`]+`/g, '')                       // remove inline code
+    .replace(/[*#_~]/g, '')                        // remove markdown symbols
+    .replace(/\n+/g, '. ')                         // convert newlines to pauses
+    .trim();
+  const utter  = new SpeechSynthesisUtterance(clean);
+  utter.lang   = 'en-US';
+  utter.rate   = 1.0;
+  utter.pitch  = 1.0;
   const voices = window.speechSynthesis.getVoices();
-  const premiumVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
-  if (premiumVoice) utterance.voice = premiumVoice;
-
-  window.speechSynthesis.speak(utterance);
+  const voice  = voices.find(v => v.lang.startsWith('en') &&
+    (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
+  if (voice) utter.voice = voice;
+  window.speechSynthesis.speak(utter);
 }
 
 function toggleSpeech() {
   isSpeechEnabled = !isSpeechEnabled;
-  const speakerBtn = document.getElementById('speaker-btn');
+  const btn = document.getElementById('speaker-btn');
   if (isSpeechEnabled) {
-    speakerBtn.innerHTML = '🔊 <span class="btn-label">Speak ON</span>';
-    showToast('🔊 Nova audio feedback active');
+    btn.innerHTML = '🔊 <span class="btn-label">Speak ON</span>';
+    showToast('🔊 Voice output enabled');
     safariSpeechUnlock();
   } else {
-    speakerBtn.innerHTML = '🔊 <span class="btn-label">Speak OFF</span>';
-    showToast('🔇 Audio output muted');
-    window.speechSynthesis.cancel();
+    btn.innerHTML = '🔇 <span class="btn-label">Speak OFF</span>';
+    showToast('🔇 Voice output disabled');
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
   }
+}
+
+/* ══════════════════════════════════════
+   VIDEO GENERATION
+══════════════════════════════════════ */
+async function generateVideo() {
+  const prompt    = document.getElementById('video-prompt').value.trim();
+  const btn       = document.getElementById('video-gen-btn');
+  const statusDiv = document.getElementById('video-status');
+  const resultDiv = document.getElementById('video-result');
+
+  if (!prompt) { showToast('Please describe your video'); return; }
+
+  resultDiv.style.display = 'none';
+  statusDiv.style.display = 'block';
+  statusDiv.textContent   = '⏳ Submitting…';
+  btn.disabled    = true;
+  btn.textContent = '⏳ Generating…';
+  if (videoPollingTimer) clearInterval(videoPollingTimer);
+
+  try {
+    const res  = await fetch('/api/generate-video', {
+      method:  'POST',
+      headers: { 'Content-Type':'application/json' },
+      body:    JSON.stringify({ prompt })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to start');
+    statusDiv.textContent = '🎬 Generating video (30–90 sec)…';
+    pollVideoStatus(data.jobId);
+  } catch (err) {
+    statusDiv.textContent = '❌ Error: ' + err.message;
+    resetVideoBtn();
+  }
+}
+
+function pollVideoStatus(jobId) {
+  let attempts = 0;
+  videoPollingTimer = setInterval(async () => {
+    if (++attempts > 60) {
+      clearInterval(videoPollingTimer);
+      document.getElementById('video-status').textContent = '⏰ Timed out. Please try again.';
+      resetVideoBtn();
+      return;
+    }
+    try {
+      const res  = await fetch(`/api/video-status/${jobId}`);
+      const data = await res.json();
+      const secs = attempts * 3;
+      if (data.status === 'completed' && data.videoUrl) {
+        clearInterval(videoPollingTimer);
+        showVideoResult(data.videoUrl);
+      } else if (data.status === 'failed') {
+        clearInterval(videoPollingTimer);
+        document.getElementById('video-status').textContent = '❌ ' + (data.error || 'Unknown error');
+        resetVideoBtn();
+      } else {
+        document.getElementById('video-status').textContent = `🎬 Generating… ${secs}s elapsed…`;
+      }
+    } catch (_) { /* network blip, keep polling */ }
+  }, 3000);
+}
+
+function showVideoResult(videoUrl) {
+  currentVideoUrl = videoUrl;
+  const player    = document.getElementById('video-player');
+  const resultDiv = document.getElementById('video-result');
+  const statusDiv = document.getElementById('video-status');
+  const btn       = document.getElementById('video-gen-btn');
+  player.src      = videoUrl;
+  resultDiv.style.display = 'block';
+  statusDiv.textContent   = '✅ Video ready!';
+  btn.disabled    = false;
+  btn.textContent = '🎬 Generate Another';
+  player.oncanplay = () => player.play().catch(() => {});
+}
+
+function downloadVideo() {
+  if (!currentVideoUrl) return;
+  const a      = document.createElement('a');
+  a.href       = currentVideoUrl;
+  a.download   = `nova-video-${Date.now()}.mp4`;
+  a.click();
+}
+
+function resetVideoBtn() {
+  const btn = document.getElementById('video-gen-btn');
+  if (btn) { btn.disabled = false; btn.textContent = '🎬 Generate Video'; }
 }
 
 /* ── Toast ── */
@@ -1135,4 +1331,4 @@ function showToast(msg) {
 }
 </script>
 </body>
-</html>
+       </html>
