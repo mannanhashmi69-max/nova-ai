@@ -29,7 +29,7 @@ const ENV = {
   }
 })();
 
-// ─── Retry helper for flaky networks ─────────────────────
+// ─── Retry helper for flaky networks (fixes ENOTFOUND) ─────
 async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
   for (let i = 0; i < retries; i++) {
     try {
