@@ -29,7 +29,21 @@ const ENV = {
   }
 })();
 
-// ─── Helpers ───────────────────────────────────────────────
+// ─── Retry helper for flaky networks ─────────────────────
+async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok || response.status < 500) return response;
+      throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      console.log(`Retry ${i+1}/${retries} for ${url} after ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 function fetchWithTimeout(url, options, ms) {
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), ms);
@@ -75,14 +89,13 @@ app.post('/api/image', async (req, res) => {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  // Fix Bug 1: don't use HEAD — actually fetch the image and verify content-type
+  // Try Pollinations first
   try {
     const url      = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true&seed=${Date.now()}`;
     const response = await fetchWithTimeout(url, {}, 15000);
     const ct       = response.headers.get('content-type') || '';
 
     if (response.ok && ct.startsWith('image/')) {
-      // Stream it through to avoid CORS issues and verify it's real
       const buffer  = await response.arrayBuffer();
       const base64  = Buffer.from(buffer).toString('base64');
       const ext     = ct.includes('png') ? 'png' : 'jpeg';
@@ -91,13 +104,13 @@ app.post('/api/image', async (req, res) => {
         source:   'pollinations'
       });
     }
-    throw new Error(`Pollinations returned ${response.status} ${ct}`);
-
+    console.warn(`Pollinations returned ${response.status} – falling back to Hugging Face`);
+    throw new Error('Pollinations unavailable');
   } catch (err) {
     console.warn('Pollinations image failed:', err.message, '— trying HF…');
   }
 
-  // HF fallback
+  // Hugging Face fallback (with retry)
   if (!ENV.HF_TOKEN) {
     return res.status(503).json({
       error: 'Image generation unavailable. Add HF_TOKEN to Railway variables.'
@@ -105,20 +118,20 @@ app.post('/api/image', async (req, res) => {
   }
 
   try {
-    const hfRes = await fetchWithTimeout(
+    const hfRes = await fetchWithRetry(
       'https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo',
       {
         method:  'POST',
         headers: {
           'Content-Type':  'application/json',
-          'Authorization': `Bearer ${ENV.HF_TOKEN}`  // pre-trimmed
+          'Authorization': `Bearer ${ENV.HF_TOKEN}`
         },
         body: JSON.stringify({
           inputs:     prompt,
           parameters: { num_inference_steps: 4, guidance_scale: 0.0 }
         })
       },
-      35000
+      3, 1000
     );
 
     if (!hfRes.ok) {
@@ -142,8 +155,6 @@ app.post('/api/image', async (req, res) => {
 });
 
 // ─── Chat providers ────────────────────────────────────────
-
-// Fix Bug 4: don't include the current user message in history before fixing turns
 function fixGeminiHistory(historyOnly) {
   const turns   = [];
   let lastRole  = null;
@@ -172,7 +183,7 @@ const AI_PROVIDERS = [
           method:  'POST',
           headers: {
             'Content-Type':  'application/json',
-            'Authorization': `Bearer ${ENV.GROQ_KEY}`  // pre-trimmed, never undefined
+            'Authorization': `Bearer ${ENV.GROQ_KEY}`
           },
           body: JSON.stringify({
             model:       'llama-3.1-8b-instant',
@@ -194,12 +205,8 @@ const AI_PROVIDERS = [
     available: () => !!ENV.GEMINI_KEY,
     call:      async (messages) => {
       const systemMsg  = messages.find(m => m.role === 'system')?.content || '';
-      // Fix Bug 4: separate history from current user message
-      const history    = messages.filter(m => m.role !== 'system' && m.role !== 'user' || messages.indexOf(m) < messages.length - 1);
-      const lastMsg    = messages[messages.length - 1]; // always the current user message
       const fixedTurns = fixGeminiHistory(messages.filter(m => m.role !== 'system').slice(0, -1));
-
-      // Append current user message cleanly
+      const lastMsg    = messages[messages.length - 1];
       fixedTurns.push({ role: 'user', parts: [{ text: lastMsg.content }] });
 
       const body = {
@@ -232,7 +239,7 @@ const AI_PROVIDERS = [
       );
       if (res.status === 429) throw new RateLimitError('Pollinations');
       if (!res.ok) throw new Error(`Pollinations ${res.status}`);
-      const data = await safeJson(res); // Fix Bug 6: use safeJson
+      const data = await safeJson(res);
       return data.choices[0].message.content.trim();
     }
   }
@@ -313,7 +320,7 @@ const VIDEO_MODEL    = 'damo-vilab/text-to-video-ms-1.7b';
 const JOB_TTL_MS     = 10 * 60 * 1000;
 const GEN_TIMEOUT_MS = 90 * 1000;
 const MAX_CONCURRENT = 3;
-const MAX_MAP_SIZE   = 100; // Fix Bug 5: hard cap on Map size
+const MAX_MAP_SIZE   = 100;
 
 const videoJobs  = new Map();
 let   activeJobs = 0;
@@ -354,8 +361,8 @@ app.get('/api/video-status/:jobId', (req, res) => {
 
 async function generateVideoAsync(jobId) {
   const job = videoJobs.get(jobId);
-  if (!job) return;                        // guard against race condition
-  if (!ENV.HF_TOKEN) {                     // Fix Bug 3: safe check using pre-trimmed ENV
+  if (!job) return;
+  if (!ENV.HF_TOKEN) {
     videoJobs.set(jobId, { ...job, status:'failed', error:'HF_TOKEN missing' });
     return;
   }
@@ -365,17 +372,18 @@ async function generateVideoAsync(jobId) {
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), GEN_TIMEOUT_MS);
 
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://api-inference.huggingface.co/models/${VIDEO_MODEL}`,
       {
         method:  'POST',
         signal:  controller.signal,
         headers: {
           'Content-Type':  'application/json',
-          'Authorization': `Bearer ${ENV.HF_TOKEN}`  // pre-trimmed, never .trim() at runtime
+          'Authorization': `Bearer ${ENV.HF_TOKEN}`
         },
         body: JSON.stringify({ inputs: job.prompt, parameters: { num_frames:16, fps:8 } })
-      }
+      },
+      2, 2000
     );
     clearTimeout(timer);
 
@@ -400,8 +408,9 @@ async function generateVideoAsync(jobId) {
 }
 
 // ─── Frontend ──────────────────────────────────────────────
+// FIXED: serve index.html from the correct path
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 5000;
