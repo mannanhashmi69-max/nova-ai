@@ -3,23 +3,20 @@ const cors    = require('cors');
 const path    = require('path');
 const https   = require('https');
 const dns     = require('dns');
+const fs      = require('fs');
 
 // ─── DNS Fix for Railway Free Tier ─────────────────────────
-// 1. Force IPv4 globally (Railway often fails on IPv6 resolution)
 if (dns.setDefaultResultOrder) {
   dns.setDefaultResultOrder('ipv4first');
 }
 
-// 2. DNS-over-HTTPS (DoH) Agent to bypass port 53 outbound blocks
 const secureDnsAgent = new https.Agent({
   keepAlive: true,
   lookup: (hostname, options, callback) => {
-    // Try standard DNS first
     dns.lookup(hostname, { family: 4 }, (err, address, family) => {
       if (!err) return callback(null, address, family);
 
       console.warn(`⚠️ Standard DNS failed for ${hostname}, using DoH fallback...`);
-      // Fallback to Cloudflare DoH (DNS-over-HTTPS)
       https.get(`https://cloudflare-dns.com/dns-query?name=${hostname}&type=A`, {
         headers: { 'Accept': 'application/dns-json' }
       }, (res) => {
@@ -32,7 +29,7 @@ const secureDnsAgent = new https.Agent({
               console.log(`✅ DoH resolved ${hostname} to ${json.Answer[0].data}`);
               callback(null, json.Answer[0].data, 4);
             } else {
-              callback(err, null, null); // Return original error
+              callback(err, null, null);
             }
           } catch (e) {
             callback(err, null, null);
@@ -52,8 +49,13 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Serve static files from the current directory (flat structure)
-app.use(express.static(__dirname));
+// ─── Dynamic Path Resolution ───────────────────────────────
+const isFlatStructure = fs.existsSync(path.join(__dirname, 'index.html'));
+const publicRoot = isFlatStructure ? __dirname : path.join(__dirname, '..');
+
+app.use(express.static(publicRoot));
+console.log(`📂 Serving static files from: ${publicRoot}`);
+// ──────────────────────────────────────────────────────────
 
 // ─── Environment ───────────────────────────────────────────
 const ENV = {
@@ -135,28 +137,25 @@ app.post('/api/image', async (req, res) => {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  // Try Pollinations first
   try {
-    const url      = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true&seed=${Date.now()}`;
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true&seed=${Date.now()}`;
     const response = await fetchWithTimeout(url, {}, 15000);
-    const ct       = response.headers.get('content-type') || '';
+    const ct = response.headers.get('content-type') || '';
 
     if (response.ok && ct.startsWith('image/')) {
-      const buffer  = await response.arrayBuffer();
-      const base64  = Buffer.from(buffer).toString('base64');
-      const ext     = ct.includes('png') ? 'png' : 'jpeg';
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const ext    = ct.includes('png') ? 'png' : 'jpeg';
       return res.json({
-        imageUrl: `data:image/${ext};base64,${base64}`,
+        imageUrl: `data:image/${ext};base64,${base64}`, // FIXED: Removed accidental "./"
         source:   'pollinations'
       });
     }
-    console.warn(`Pollinations returned ${response.status} – falling back to Hugging Face`);
     throw new Error('Pollinations unavailable');
   } catch (err) {
     console.warn('Pollinations image failed:', err.message, '— trying HF…');
   }
 
-  // Hugging Face fallback
   if (!ENV.HF_TOKEN) {
     return res.status(503).json({
       error: 'Image generation unavailable. Add HF_TOKEN to Railway variables.'
@@ -165,10 +164,10 @@ app.post('/api/image', async (req, res) => {
 
   try {
     const hfRes = await fetchWithRetry(
-      'https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo',
+      '[https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo](https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo)',
       {
         method:  'POST',
-        agent:   secureDnsAgent, // Uses custom DNS agent
+        agent:   secureDnsAgent,
         headers: {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${ENV.HF_TOKEN}`
@@ -225,7 +224,7 @@ const AI_PROVIDERS = [
     available: () => !!ENV.GROQ_KEY,
     call:      async (messages) => {
       const res = await fetchWithTimeout(
-        'https://api.groq.com/openai/v1/chat/completions',
+        '[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)',
         {
           method:  'POST',
           headers: {
@@ -280,7 +279,7 @@ const AI_PROVIDERS = [
     available: () => true,
     call:      async (messages) => {
       const res = await fetchWithTimeout(
-        'https://text.pollinations.ai/openai',
+        '[https://text.pollinations.ai/openai](https://text.pollinations.ai/openai)',
         { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ model:'openai', messages }) },
         25000
       );
@@ -423,7 +422,7 @@ async function generateVideoAsync(jobId) {
       `https://api-inference.huggingface.co/models/${VIDEO_MODEL}`,
       {
         method:  'POST',
-        agent:   secureDnsAgent, // Uses custom DNS agent
+        agent:   secureDnsAgent,
         signal:  controller.signal,
         headers: {
           'Content-Type':  'application/json',
@@ -456,9 +455,9 @@ async function generateVideoAsync(jobId) {
 }
 
 // ─── Frontend ──────────────────────────────────────────────
-// Serves index.html from the same root folder as this file
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  const indexHtmlPath = path.join(publicRoot, 'index.html');
+  res.sendFile(indexHtmlPath);
 });
 
 const PORT = process.env.PORT || 5000;
