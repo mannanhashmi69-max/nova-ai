@@ -2,32 +2,49 @@ const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 const https   = require('https');
-const dnsPromises = require('dns').promises;
+const dns     = require('dns');
 
-// ─── Custom DNS resolver for Hugging Face (bypass Railway's DNS issues) ───
-async function resolveHuggingFace(hostname) {
-  try {
-    const { address } = await dnsPromises.lookup(hostname, { family: 4, server: '1.1.1.1' });
-    return address;
-  } catch (e) {
-    // fallback to system DNS if custom fails
-    const { address } = await dnsPromises.lookup(hostname, { family: 4 });
-    return address;
-  }
+// ─── DNS Fix for Railway Free Tier ─────────────────────────
+// 1. Force IPv4 globally (Railway often fails on IPv6 resolution)
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
 }
 
-const huggingFaceAgent = new https.Agent({
+// 2. DNS-over-HTTPS (DoH) Agent to bypass port 53 outbound blocks
+const secureDnsAgent = new https.Agent({
+  keepAlive: true,
   lookup: (hostname, options, callback) => {
-    resolveHuggingFace(hostname)
-      .then(ip => callback(null, ip, 4))
-      .catch(err => callback(err));
+    // Try standard DNS first
+    dns.lookup(hostname, { family: 4 }, (err, address, family) => {
+      if (!err) return callback(null, address, family);
+
+      console.warn(`⚠️ Standard DNS failed for ${hostname}, using DoH fallback...`);
+      // Fallback to Cloudflare DoH (DNS-over-HTTPS)
+      https.get(`https://cloudflare-dns.com/dns-query?name=${hostname}&type=A`, {
+        headers: { 'Accept': 'application/dns-json' }
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (json.Answer && json.Answer.length > 0) {
+              console.log(`✅ DoH resolved ${hostname} to ${json.Answer[0].data}`);
+              callback(null, json.Answer[0].data, 4);
+            } else {
+              callback(err, null, null); // Return original error
+            }
+          } catch (e) {
+            callback(err, null, null);
+          }
+        });
+      }).on('error', () => {
+        callback(err, null, null);
+      });
+    });
   }
 });
-
-async function fetchWithHFAgent(url, options = {}) {
-  // Use the custom agent only for Hugging Face API calls
-  return fetch(url, { ...options, agent: huggingFaceAgent });
-}
+// ──────────────────────────────────────────────────────────
 
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
@@ -50,13 +67,27 @@ const ENV = {
     { val: ENV.HF_TOKEN,   prefix: 'hf_',    label: 'Hugging Face', key: 'HF_TOKEN'       }
   ];
   for (const { val, prefix, label, key } of checks) {
-    if (!val)                    console.warn(`⚠️  ${key} not set — ${label} disabled`);
+    if (!val)                    console.warn (`⚠️  ${key} not set — ${label} disabled`);
     else if (!val.startsWith(prefix)) console.error(`❌ ${key} looks wrong — should start with "${prefix}"`);
-    else                         console.log(`✅ ${key} loaded (${label})`);
+    else                         console.log  (`✅ ${key} loaded (${label})`);
   }
 })();
 
-// ─── Helpers ───────────────────────────────────────────────
+// ─── Retry helper for flaky networks ───────────────────────
+async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok || response.status < 500) return response;
+      throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      console.log(`Retry ${i+1}/${retries} for ${url} after ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 function fetchWithTimeout(url, options, ms) {
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), ms);
@@ -102,11 +133,12 @@ app.post('/api/image', async (req, res) => {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  // Try Pollinations first (no token needed) – but it may return 402 now
+  // Try Pollinations first
   try {
     const url      = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true&seed=${Date.now()}`;
     const response = await fetchWithTimeout(url, {}, 15000);
     const ct       = response.headers.get('content-type') || '';
+
     if (response.ok && ct.startsWith('image/')) {
       const buffer  = await response.arrayBuffer();
       const base64  = Buffer.from(buffer).toString('base64');
@@ -116,21 +148,25 @@ app.post('/api/image', async (req, res) => {
         source:   'pollinations'
       });
     }
-    throw new Error(`Pollinations returned ${response.status} ${ct}`);
+    console.warn(`Pollinations returned ${response.status} – falling back to Hugging Face`);
+    throw new Error('Pollinations unavailable');
   } catch (err) {
     console.warn('Pollinations image failed:', err.message, '— trying HF…');
   }
 
-  // HF fallback with custom DNS agent
+  // Hugging Face fallback
   if (!ENV.HF_TOKEN) {
-    return res.status(503).json({ error: 'Image generation unavailable. Add HF_TOKEN to Railway variables.' });
+    return res.status(503).json({
+      error: 'Image generation unavailable. Add HF_TOKEN to Railway variables.'
+    });
   }
 
   try {
-    const hfRes = await fetchWithTimeout(
+    const hfRes = await fetchWithRetry(
       'https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo',
       {
         method:  'POST',
+        agent:   secureDnsAgent, // Uses custom DNS agent
         headers: {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${ENV.HF_TOKEN}`
@@ -138,10 +174,9 @@ app.post('/api/image', async (req, res) => {
         body: JSON.stringify({
           inputs:     prompt,
           parameters: { num_inference_steps: 4, guidance_scale: 0.0 }
-        }),
-        agent: huggingFaceAgent   // 🔧 custom DNS agent
+        })
       },
-      35000
+      3, 1000
     );
 
     if (!hfRes.ok) {
@@ -215,10 +250,10 @@ const AI_PROVIDERS = [
     available: () => !!ENV.GEMINI_KEY,
     call:      async (messages) => {
       const systemMsg  = messages.find(m => m.role === 'system')?.content || '';
-      const history    = messages.filter(m => m.role !== 'system').slice(0, -1);
+      const fixedTurns = fixGeminiHistory(messages.filter(m => m.role !== 'system').slice(0, -1));
       const lastMsg    = messages[messages.length - 1];
-      const fixedTurns = fixGeminiHistory(history);
       fixedTurns.push({ role: 'user', parts: [{ text: lastMsg.content }] });
+
       const body = {
         contents:         fixedTurns,
         generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }
@@ -226,6 +261,7 @@ const AI_PROVIDERS = [
       if (systemMsg.trim()) {
         body.system_instruction = { parts: [{ text: systemMsg }] };
       }
+
       const res = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${ENV.GEMINI_KEY}`,
         { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) },
@@ -265,7 +301,9 @@ async function getAIReply(messages) {
     }
     return true;
   });
+
   if (providers.length === 0) throw new Error('All providers unavailable or in cooldown');
+
   let lastError = null;
   for (const provider of providers) {
     try {
@@ -379,20 +417,19 @@ async function generateVideoAsync(jobId) {
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), GEN_TIMEOUT_MS);
 
-    // 🔧 Use custom agent for video generation as well
-    const response = await fetchWithTimeout(
+    const response = await fetchWithRetry(
       `https://api-inference.huggingface.co/models/${VIDEO_MODEL}`,
       {
         method:  'POST',
+        agent:   secureDnsAgent, // Uses custom DNS agent
         signal:  controller.signal,
         headers: {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${ENV.HF_TOKEN}`
         },
-        body: JSON.stringify({ inputs: job.prompt, parameters: { num_frames:16, fps:8 } }),
-        agent: huggingFaceAgent   // custom DNS agent
+        body: JSON.stringify({ inputs: job.prompt, parameters: { num_frames:16, fps:8 } })
       },
-      GEN_TIMEOUT_MS
+      2, 2000
     );
     clearTimeout(timer);
 
@@ -418,7 +455,7 @@ async function generateVideoAsync(jobId) {
 
 // ─── Frontend ──────────────────────────────────────────────
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 5000;
