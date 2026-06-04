@@ -3,59 +3,16 @@ const cors    = require('cors');
 const path    = require('path');
 const https   = require('https');
 const dns     = require('dns');
-const fs      = require('fs');
 
-// ─── DNS Fix for Railway Free Tier ─────────────────────────
-if (dns.setDefaultResultOrder) {
-  dns.setDefaultResultOrder('ipv4first');
-}
-
-const secureDnsAgent = new https.Agent({
-  keepAlive: true,
-  lookup: (hostname, options, callback) => {
-    dns.lookup(hostname, { family: 4 }, (err, address, family) => {
-      if (!err) return callback(null, address, family);
-
-      console.warn(`⚠️ Standard DNS failed for ${hostname}, using DoH fallback...`);
-      https.get(`https://cloudflare-dns.com/dns-query?name=${hostname}&type=A`, {
-        headers: { 'Accept': 'application/dns-json' }
-      }, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try {
-            const json = JSON.parse(data);
-            if (json.Answer && json.Answer.length > 0) {
-              console.log(`✅ DoH resolved ${hostname} to ${json.Answer[0].data}`);
-              callback(null, json.Answer[0].data, 4);
-            } else {
-              callback(err, null, null);
-            }
-          } catch (e) {
-            callback(err, null, null);
-          }
-        });
-      }).on('error', () => {
-        callback(err, null, null);
-      });
-    });
-  }
-});
-// ──────────────────────────────────────────────────────────
+// Force IPv4 globally — Railway free tier often fails IPv6 → HF resolution
+dns.setDefaultResultOrder('ipv4first');
 
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-
-// ─── Dynamic Path Resolution ───────────────────────────────
-const isFlatStructure = fs.existsSync(path.join(__dirname, 'index.html'));
-const publicRoot = isFlatStructure ? __dirname : path.join(__dirname, '..');
-
-app.use(express.static(publicRoot));
-console.log(`📂 Serving static files from: ${publicRoot}`);
-// ──────────────────────────────────────────────────────────
+app.use(express.static('public'));
 
 // ─── Environment ───────────────────────────────────────────
 const ENV = {
@@ -71,32 +28,63 @@ const ENV = {
     { val: ENV.HF_TOKEN,   prefix: 'hf_',    label: 'Hugging Face', key: 'HF_TOKEN'       }
   ];
   for (const { val, prefix, label, key } of checks) {
-    if (!val)                    console.warn (`⚠️  ${key} not set — ${label} disabled`);
+    if (!val)                         console.warn (`⚠️  ${key} not set — ${label} disabled`);
     else if (!val.startsWith(prefix)) console.error(`❌ ${key} looks wrong — should start with "${prefix}"`);
-    else                         console.log  (`✅ ${key} loaded (${label})`);
+    else                              console.log  (`✅ ${key} loaded (${label})`);
   }
 })();
 
-// ─── Retry helper for flaky networks ───────────────────────
-async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.ok || response.status < 500) return response;
-      throw new Error(`HTTP ${response.status}`);
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      console.log(`Retry ${i+1}/${retries} for ${url} after ${delayMs}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-    }
-  }
-}
+// ─── HF endpoint config ────────────────────────────────────
+// PRIMARY:  Hugging Face Router (different subdomain, different CDN path)
+//           This resolves correctly on Railway when api-inference does not.
+// FALLBACK: Direct api-inference (works if Railway eventually fixes DNS)
+const HF_ENDPOINTS = {
+  image: [
+    'https://router.huggingface.co/hf-inference/models/stabilityai/sdxl-turbo',
+    'https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo'
+  ],
+  video: [
+    'https://router.huggingface.co/hf-inference/models/damo-vilab/text-to-video-ms-1.7b',
+    'https://api-inference.huggingface.co/models/damo-vilab/text-to-video-ms-1.7b'
+  ]
+};
+
+// ─── Helpers ───────────────────────────────────────────────
+
+// Agent that forces IPv4 — prevents IPv6 ENOTFOUND on Railway
+const ipv4Agent = new https.Agent({ family: 4 });
 
 function fetchWithTimeout(url, options, ms) {
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), ms);
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(timer));
+}
+
+// Try each URL in order, return first that doesn't throw ENOTFOUND/ECONNREFUSED
+async function fetchWithFallbackUrls(urls, options, timeoutMs) {
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      console.log(`  → trying ${url.replace('https://', '').split('/')[0]}`);
+      const res = await fetchWithTimeout(url, {
+        ...options,
+        // Force IPv4 agent on all HF requests
+        agent: ipv4Agent
+      }, timeoutMs);
+      return res; // return even non-200 — caller decides what to do with status
+    } catch (err) {
+      const isDns = err.code === 'ENOTFOUND'
+                 || err.code === 'EAI_AGAIN'
+                 || err.code === 'ECONNREFUSED'
+                 || err.message?.includes('ENOTFOUND')
+                 || err.name  === 'AbortError';
+      console.warn(`  ✗ ${url.split('/')[2]}: ${err.code || err.message}`);
+      lastErr = err;
+      if (!isDns) throw err; // non-DNS error — don't try next URL
+    }
+  }
+  throw lastErr;
 }
 
 class RateLimitError extends Error {
@@ -137,37 +125,34 @@ app.post('/api/image', async (req, res) => {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
+  // Try Pollinations first (no token, no DNS issues)
   try {
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true&seed=${Date.now()}`;
+    const url      = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${size}&height=${size}&nologo=true&seed=${Date.now()}`;
     const response = await fetchWithTimeout(url, {}, 15000);
-    const ct = response.headers.get('content-type') || '';
+    const ct       = response.headers.get('content-type') || '';
 
     if (response.ok && ct.startsWith('image/')) {
       const buffer = await response.arrayBuffer();
       const base64 = Buffer.from(buffer).toString('base64');
       const ext    = ct.includes('png') ? 'png' : 'jpeg';
-      return res.json({
-        imageUrl: `data:image/${ext};base64,${base64}`, // FIXED: Removed accidental "./"
-        source:   'pollinations'
-      });
+      return res.json({ imageUrl: `data:image/${ext};base64,${base64}`, source: 'pollinations' });
     }
-    throw new Error('Pollinations unavailable');
+    throw new Error(`Pollinations returned ${response.status}`);
   } catch (err) {
     console.warn('Pollinations image failed:', err.message, '— trying HF…');
   }
 
   if (!ENV.HF_TOKEN) {
-    return res.status(503).json({
-      error: 'Image generation unavailable. Add HF_TOKEN to Railway variables.'
-    });
+    return res.status(503).json({ error: 'Image generation unavailable. Add HF_TOKEN to Railway.' });
   }
 
+  // HF fallback — try Router first, then api-inference
   try {
-    const hfRes = await fetchWithRetry(
-      '[https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo](https://api-inference.huggingface.co/models/stabilityai/sdxl-turbo)',
+    console.log('Calling HF image (Router → api-inference)…');
+    const hfRes = await fetchWithFallbackUrls(
+      HF_ENDPOINTS.image,
       {
         method:  'POST',
-        agent:   secureDnsAgent,
         headers: {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${ENV.HF_TOKEN}`
@@ -177,7 +162,7 @@ app.post('/api/image', async (req, res) => {
           parameters: { num_inference_steps: 4, guidance_scale: 0.0 }
         })
       },
-      3, 1000
+      35000
     );
 
     if (!hfRes.ok) {
@@ -187,7 +172,7 @@ app.post('/api/image', async (req, res) => {
       throw new Error(`HF ${hfRes.status}: ${body.slice(0, 120)}`);
     }
 
-    const ct = hfRes.headers.get('content-type') || 'image/jpeg';
+    const ct  = hfRes.headers.get('content-type') || 'image/jpeg';
     const buf = await hfRes.arrayBuffer();
     res.json({
       imageUrl: `data:${ct};base64,${Buffer.from(buf).toString('base64')}`,
@@ -202,8 +187,8 @@ app.post('/api/image', async (req, res) => {
 
 // ─── Chat providers ────────────────────────────────────────
 function fixGeminiHistory(historyOnly) {
-  const turns   = [];
-  let lastRole  = null;
+  const turns  = [];
+  let lastRole = null;
   for (const msg of historyOnly) {
     const role = msg.role === 'assistant' ? 'model' : 'user';
     if (role === lastRole) {
@@ -224,19 +209,11 @@ const AI_PROVIDERS = [
     available: () => !!ENV.GROQ_KEY,
     call:      async (messages) => {
       const res = await fetchWithTimeout(
-        '[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)',
+        'https://api.groq.com/openai/v1/chat/completions',
         {
           method:  'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${ENV.GROQ_KEY}`
-          },
-          body: JSON.stringify({
-            model:       'llama-3.1-8b-instant',
-            messages,
-            max_tokens:  1024,
-            temperature: 0.7
-          })
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ENV.GROQ_KEY}` },
+          body: JSON.stringify({ model: 'llama-3.1-8b-instant', messages, max_tokens: 1024, temperature: 0.7 })
         },
         15000
       );
@@ -255,17 +232,12 @@ const AI_PROVIDERS = [
       const lastMsg    = messages[messages.length - 1];
       fixedTurns.push({ role: 'user', parts: [{ text: lastMsg.content }] });
 
-      const body = {
-        contents:         fixedTurns,
-        generationConfig: { maxOutputTokens: 1024, temperature: 0.7 }
-      };
-      if (systemMsg.trim()) {
-        body.system_instruction = { parts: [{ text: systemMsg }] };
-      }
+      const body = { contents: fixedTurns, generationConfig: { maxOutputTokens: 1024, temperature: 0.7 } };
+      if (systemMsg.trim()) body.system_instruction = { parts: [{ text: systemMsg }] };
 
       const res = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${ENV.GEMINI_KEY}`,
-        { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
         20000
       );
       if (res.status === 429) throw new RateLimitError('Gemini');
@@ -279,8 +251,8 @@ const AI_PROVIDERS = [
     available: () => true,
     call:      async (messages) => {
       const res = await fetchWithTimeout(
-        '[https://text.pollinations.ai/openai](https://text.pollinations.ai/openai)',
-        { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ model:'openai', messages }) },
+        'https://text.pollinations.ai/openai',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'openai', messages }) },
         25000
       );
       if (res.status === 429) throw new RateLimitError('Pollinations');
@@ -296,10 +268,7 @@ async function getAIReply(messages) {
   const providers = AI_PROVIDERS.filter(p => {
     if (!p.available()) return false;
     const cooldown = providerCooldowns.get(p.name);
-    if (cooldown && now < cooldown) {
-      console.log(`⏸  ${p.name} cooling down, skipping`);
-      return false;
-    }
+    if (cooldown && now < cooldown) { console.log(`⏸  ${p.name} cooling down`); return false; }
     return true;
   });
 
@@ -315,9 +284,7 @@ async function getAIReply(messages) {
       return { reply, provider: provider.name };
     } catch (err) {
       console.warn(`⚠️  ${provider.name} failed: ${err.message}`);
-      if (err instanceof RateLimitError) {
-        providerCooldowns.set(provider.name, Date.now() + 60_000);
-      }
+      if (err instanceof RateLimitError) providerCooldowns.set(provider.name, Date.now() + 60_000);
       lastError = err;
     }
   }
@@ -341,9 +308,9 @@ app.post('/api/chat', async (req, res) => {
     if (userMessage.length > 4000) return sendError('Message too long (max 4000 chars)');
 
     const messages = [
-      { role:'system', content:'You are Nova AI, a futuristic, intelligent, and helpful AI assistant. Be concise, friendly, and insightful. Refuse harmful or illegal requests politely.' },
+      { role: 'system', content: 'You are Nova AI, a futuristic, intelligent, and helpful AI assistant. Be concise, friendly, and insightful. Refuse harmful or illegal requests politely.' },
       ...history.slice(-10),
-      { role:'user', content: userMessage }
+      { role: 'user', content: userMessage }
     ];
 
     const { reply, provider } = await getAIReply(messages);
@@ -362,7 +329,6 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // ─── Video generation ──────────────────────────────────────
-const VIDEO_MODEL    = 'damo-vilab/text-to-video-ms-1.7b';
 const JOB_TTL_MS     = 10 * 60 * 1000;
 const GEN_TIMEOUT_MS = 90 * 1000;
 const MAX_CONCURRENT = 3;
@@ -379,7 +345,7 @@ setInterval(() => {
 }, JOB_TTL_MS);
 
 app.post('/api/generate-video', (req, res) => {
-  if (!ENV.HF_TOKEN) return res.status(503).json({ error: 'Video not configured. Add HF_TOKEN to Railway.' });
+  if (!ENV.HF_TOKEN)               return res.status(503).json({ error: 'Video not configured. Add HF_TOKEN to Railway.' });
   if (videoJobs.size >= MAX_MAP_SIZE) return res.status(503).json({ error: 'Server storage full. Try again in a few minutes.' });
 
   const { prompt } = req.body;
@@ -388,14 +354,14 @@ app.post('/api/generate-video', (req, res) => {
   if (activeJobs >= MAX_CONCURRENT) return res.status(429).json({ error: 'Server busy. Try again shortly.' });
 
   const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  videoJobs.set(jobId, { status:'processing', prompt, createdAt:Date.now(), videoUrl:null, error:null });
+  videoJobs.set(jobId, { status: 'processing', prompt, createdAt: Date.now(), videoUrl: null, error: null });
 
   generateVideoAsync(jobId).catch(err => {
     const current = videoJobs.get(jobId);
-    if (current) videoJobs.set(jobId, { ...current, status:'failed', error:err.message });
+    if (current) videoJobs.set(jobId, { ...current, status: 'failed', error: err.message });
   });
 
-  res.json({ jobId, status:'processing', pollUrl:`/api/video-status/${jobId}` });
+  res.json({ jobId, status: 'processing', pollUrl: `/api/video-status/${jobId}` });
 });
 
 app.get('/api/video-status/:jobId', (req, res) => {
@@ -409,34 +375,63 @@ async function generateVideoAsync(jobId) {
   const job = videoJobs.get(jobId);
   if (!job) return;
   if (!ENV.HF_TOKEN) {
-    videoJobs.set(jobId, { ...job, status:'failed', error:'HF_TOKEN missing' });
+    videoJobs.set(jobId, { ...job, status: 'failed', error: 'HF_TOKEN missing' });
     return;
   }
 
   activeJobs++;
   try {
+    console.log(`Video job ${jobId}: calling HF (Router → api-inference)…`);
+
+    // AbortController for the overall 90s job timeout
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), GEN_TIMEOUT_MS);
 
-    const response = await fetchWithRetry(
-      `https://api-inference.huggingface.co/models/${VIDEO_MODEL}`,
-      {
-        method:  'POST',
-        agent:   secureDnsAgent,
-        signal:  controller.signal,
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${ENV.HF_TOKEN}`
-        },
-        body: JSON.stringify({ inputs: job.prompt, parameters: { num_frames:16, fps:8 } })
-      },
-      2, 2000
-    );
+    let response = null;
+    let lastDnsErr = null;
+
+    // Try each HF endpoint — Router first, then direct
+    for (const url of HF_ENDPOINTS.video) {
+      try {
+        console.log(`  → trying ${url.replace('https://', '').split('/')[0]}`);
+        response = await fetchWithTimeout(url, {
+          method:  'POST',
+          signal:  controller.signal,
+          agent:   ipv4Agent,           // force IPv4
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${ENV.HF_TOKEN}`
+          },
+          body: JSON.stringify({ inputs: job.prompt, parameters: { num_frames: 16, fps: 8 } })
+        }, Math.min(GEN_TIMEOUT_MS - 5000, 85000));
+        break; // success — exit loop
+      } catch (err) {
+        const isDns = err.code === 'ENOTFOUND'
+                   || err.code === 'EAI_AGAIN'
+                   || err.code === 'ECONNREFUSED'
+                   || err.message?.includes('ENOTFOUND');
+        console.warn(`  ✗ ${url.split('/')[2]}: ${err.code || err.message}`);
+        lastDnsErr = err;
+        if (err.name === 'AbortError') throw new Error('Timed out after 90s. Try a shorter prompt.');
+        if (!isDns) throw err; // non-DNS error — stop trying
+        // DNS error — try next URL
+      }
+    }
+
     clearTimeout(timer);
+
+    if (!response) {
+      throw new Error(
+        'Cannot reach Hugging Face from Railway. ' +
+        'This is a Railway network restriction. ' +
+        'Workaround: upgrade to Railway Starter plan ($5/mo) which has unrestricted egress. ' +
+        `Last error: ${lastDnsErr?.code || lastDnsErr?.message}`
+      );
+    }
 
     if (!response.ok) {
       const body = await response.text();
-      if (response.status === 503) throw new Error('Model warming up. Retry in 20s.');
+      if (response.status === 503) throw new Error('HF model warming up. Retry in 20 seconds.');
       if (response.status === 401) throw new Error('Invalid HF_TOKEN. Check Railway variables.');
       throw new Error(`HF ${response.status}: ${body.slice(0, 200)}`);
     }
@@ -444,7 +439,7 @@ async function generateVideoAsync(jobId) {
     const buf      = await response.arrayBuffer();
     const videoUrl = `data:video/mp4;base64,${Buffer.from(buf).toString('base64')}`;
     const current  = videoJobs.get(jobId);
-    if (current) videoJobs.set(jobId, { ...current, status:'completed', videoUrl });
+    if (current) videoJobs.set(jobId, { ...current, status: 'completed', videoUrl });
 
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('Timed out after 90s. Try a shorter prompt.');
@@ -456,8 +451,7 @@ async function generateVideoAsync(jobId) {
 
 // ─── Frontend ──────────────────────────────────────────────
 app.get('*', (req, res) => {
-  const indexHtmlPath = path.join(publicRoot, 'index.html');
-  res.sendFile(indexHtmlPath);
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 5000;
