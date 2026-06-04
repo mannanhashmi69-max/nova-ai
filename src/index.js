@@ -51,7 +51,9 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static('public'));
+
+// Serve static files from the current directory (flat structure)
+app.use(express.static(__dirname));
 
 // ─── Environment ───────────────────────────────────────────
 const ENV = {
@@ -454,8 +456,9 @@ async function generateVideoAsync(jobId) {
 }
 
 // ─── Frontend ──────────────────────────────────────────────
+// Serves index.html from the same root folder as this file
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 const PORT = process.env.PORT || 5000;
