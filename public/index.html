@@ -333,7 +333,19 @@ body {
   background:var(--glass); border:1px solid var(--border);
   border-bottom-left-radius:4px;
 }
-.msg-bubble.streaming { white-space:pre-wrap; }
+
+/* FIX: streaming bubble uses a cursor instead of raw textContent */
+.msg-bubble.streaming::after {
+  content:'▋';
+  display:inline-block;
+  color:var(--p1);
+  animation:blink-cursor 0.7s step-end infinite;
+  margin-left:2px;
+}
+@keyframes blink-cursor {
+  0%,100% { opacity:1; }
+  50%      { opacity:0; }
+}
 
 .msg-bubble strong { color:var(--p2); font-weight:600; }
 .msg-bubble em { color:var(--b1); font-style:italic; }
@@ -571,6 +583,7 @@ body {
 }
 .modal-btn:hover { transform:translateY(-1px); box-shadow:0 0 30px var(--glow); }
 .modal-btn:active { transform:translateY(0); }
+.modal-btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
 
 .img-placeholder {
   width:100%; aspect-ratio:1; border-radius:var(--r);
@@ -638,15 +651,13 @@ body {
   #sidebar {
     position:fixed; top:0; left:0; bottom:0; z-index:10;
     transform:translateX(-100%);
-    pointer-events:none;
+    /* FIX: don't use pointer-events:none here — it blocks the backdrop close */
+    transition:transform var(--trans);
     visibility:hidden;
-    transition:transform var(--trans), visibility 0s linear var(--trans);
   }
   #sidebar.open {
     transform:translateX(0);
-    pointer-events:auto;
     visibility:visible;
-    transition:transform var(--trans), visibility 0s linear 0s;
   }
   .hamburger { display:flex; }
   .topbar-actions .action-btn .btn-label { display:none; }
@@ -667,11 +678,12 @@ body {
 <div class="grid-overlay"></div>
 <div class="orb orb-1"></div>
 <div class="orb orb-2"></div>
-<div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeSidebar()"></div>
+<!-- FIX: backdrop click handler moved to JS (not inline onclick) to avoid issues on some mobile browsers -->
+<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
 <div id="app">
 
-  <aside id="sidebar" onclick="event.stopPropagation()">
+  <aside id="sidebar">
     <div class="sidebar-logo">
       <div class="logo-icon">✦</div>
       <span class="logo-text">Nova AI</span>
@@ -786,7 +798,7 @@ body {
       <option value="512" selected>512 × 512 — Balanced</option>
       <option value="1024">1024 × 1024 — High Quality</option>
     </select>
-    <button class="modal-btn" onclick="generateImage()">✦ Generate Image</button>
+    <button class="modal-btn" id="img-gen-btn" onclick="generateImage()">✦ Generate Image</button>
     <div class="img-placeholder" id="img-result">
       <div class="placeholder-icon">🖼️</div>
       <span>Your image will appear here</span>
@@ -805,13 +817,7 @@ body {
       accept=".txt,.pdf,.csv,.json,.md,.png,.jpg,.jpeg"
       onchange="handleFileSelect(this)" style="cursor:pointer;"/>
     <button class="modal-btn" onclick="uploadFile()">📤 Upload File</button>
-    <div class="file-list" id="file-list">
-      <div class="file-item">
-        <span class="file-item-icon">📊</span>
-        <span class="file-item-name">example_data.csv</span>
-        <button class="file-item-del" onclick="removeFile(this)" aria-label="Remove file">✕</button>
-      </div>
-    </div>
+    <div class="file-list" id="file-list"></div>
   </div>
 </div>
 
@@ -825,7 +831,7 @@ const MAX_CONTEXT_TURNS = 10;
 const GUEST_TIMEOUT_MS  = 10000;
 
 /* ═══════════════════════════════════════════════════════
-   STATE MANAGEMENT
+   STATE
 ═══════════════════════════════════════════════════════ */
 let isLoggedIn           = false;
 let isStreaming          = false;
@@ -846,25 +852,30 @@ window.addEventListener('DOMContentLoaded', () => {
   const token = sessionStorage.getItem('nova_token');
   const storedUser = sessionStorage.getItem('nova_token_user') || 'Guest';
   if (token) finishLogin(storedUser);
-  
+
   autoResize(document.getElementById('msg-input'));
   initSpeechRecognition();
   setupEventDelegation();
-  
+
   if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
   }
 
+  // Close modals on backdrop click
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
-    overlay.addEventListener('click', e => { 
-      if (e.target === overlay) overlay.classList.remove('open'); 
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) overlay.classList.remove('open');
     });
   });
+
+  // FIX: sidebar backdrop uses addEventListener so it works reliably on iOS Safari
+  document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
+  document.getElementById('sidebar').addEventListener('click', e => e.stopPropagation());
 });
 
 /* ═══════════════════════════════════════════════════════
-   TEMPLATE ENGINE
+   WELCOME HTML
 ═══════════════════════════════════════════════════════ */
 function buildWelcomeHTML() {
   return `
@@ -885,6 +896,7 @@ function buildWelcomeHTML() {
    EVENT DELEGATION
 ═══════════════════════════════════════════════════════ */
 function setupEventDelegation() {
+  // Conversation list: delete & switch
   document.getElementById('conv-list').addEventListener('click', e => {
     const delBtn = e.target.closest('.conv-del');
     if (delBtn) {
@@ -897,25 +909,28 @@ function setupEventDelegation() {
     }
     const convItem = e.target.closest('.conv-item');
     if (convItem) {
-      document.querySelectorAll('.conv-item').forEach(item => item.classList.remove('active'));
+      document.querySelectorAll('.conv-item').forEach(i => i.classList.remove('active'));
       convItem.classList.add('active');
-      
-      // FIXED: Flushes alternate controllers and shifts mock content context 
       if (activeChatController) activeChatController.abort();
       msgHistory = [];
       document.getElementById('chat-area').innerHTML = `
-        <div style="text-align:center; padding:40px; color:var(--text2); font-family:'DM Mono',monospace; font-size:13px;">
-          🔄 Loading conversation: "${convItem.querySelector('.conv-title').textContent}"...
+        <div style="text-align:center;padding:40px;color:var(--text2);font-family:'DM Mono',monospace;font-size:13px;">
+          🔄 Loading conversation…
         </div>`;
       closeSidebar();
     }
   });
 
+  // FIX: file list delete — delegated from the stable container
+  document.getElementById('file-list').addEventListener('click', e => {
+    const delBtn = e.target.closest('.file-item-del');
+    if (delBtn) delBtn.closest('.file-item').remove();
+  });
+
+  // Welcome chips
   document.getElementById('chat-area').addEventListener('click', e => {
-    const chip = e.target.closest('.chip');
-    if (chip && chip.hasAttribute('data-prompt')) {
-      fillChip(chip.getAttribute('data-prompt'));
-    }
+    const chip = e.target.closest('.chip[data-prompt]');
+    if (chip) fillChip(chip.getAttribute('data-prompt'));
   });
 }
 
@@ -926,13 +941,13 @@ async function guestLogin() {
   const btn = document.querySelector('.guest-btn');
   btn.disabled = true;
   btn.querySelector('span').textContent = '⏳ Connecting…';
-  
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GUEST_TIMEOUT_MS);
 
   try {
-    const res = await fetch('/api/guest', { 
-      method: 'POST', 
+    const res = await fetch('/api/guest', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal
     });
@@ -944,6 +959,7 @@ async function guestLogin() {
       finishLogin(data.username);
     } else throw new Error('Authentication rejected');
   } catch (err) {
+    clearTimeout(timeoutId);
     btn.disabled = false;
     btn.querySelector('span').textContent = '🚀 Continue as Guest';
     showToast(err.name === 'AbortError' ? '⚠️ Request timed out — retry' : '⚠️ Connection error — retry');
@@ -951,11 +967,11 @@ async function guestLogin() {
 }
 
 function finishLogin(username) {
-  const safeUsername = (typeof username === 'string' && username.trim()) ? username : 'Guest';
+  const name = (typeof username === 'string' && username.trim()) ? username.trim() : 'Guest';
   isLoggedIn = true;
   document.getElementById('login-overlay').style.display = 'none';
-  document.getElementById('user-display-name').textContent = safeUsername;
-  document.getElementById('user-avatar').textContent = safeUsername[0].toUpperCase();
+  document.getElementById('user-display-name').textContent = name;
+  document.getElementById('user-avatar').textContent = name[0].toUpperCase();
   document.getElementById('msg-input').focus();
 }
 
@@ -976,9 +992,9 @@ function fillChip(text) {
 }
 
 function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { 
-    e.preventDefault(); 
-    if (!isStreaming) sendMessage(); 
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!isStreaming) sendMessage();
   }
 }
 
@@ -1004,7 +1020,7 @@ async function sendMessage() {
 
   msgHistory.push({ role: 'user', content: message });
   if (msgHistory.length > MAX_CONTEXT_TURNS * 2) {
-    msgHistory.splice(0, msgHistory.length - (MAX_CONTEXT_TURNS * 2));
+    msgHistory.splice(0, msgHistory.length - MAX_CONTEXT_TURNS * 2);
   }
 
   appendMessage('user', message);
@@ -1013,7 +1029,7 @@ async function sendMessage() {
   typing.classList.add('show');
   scrollToBottom();
 
-  const assistantId = `msg-session-${++msgIdCounter}`;
+  const assistantId = `msg-${++msgIdCounter}`;
   let fullReply = '';
 
   try {
@@ -1028,6 +1044,7 @@ async function sendMessage() {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    // FIX: bubble reference tracked here so finalizeBubble can cancel any pending RAF
     let bubble = null;
 
     while (true) {
@@ -1035,12 +1052,12 @@ async function sendMessage() {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop();
+      buffer = lines.pop(); // keep incomplete line
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         let data;
-        try { data = JSON.parse(line.slice(6)); } catch(_) { continue; }
+        try { data = JSON.parse(line.slice(6)); } catch (_) { continue; }
 
         if (data.error) {
           typing.classList.remove('show');
@@ -1079,13 +1096,12 @@ async function sendMessage() {
 }
 
 /* ═══════════════════════════════════════════════════════
-   DOM MANIPULATION HELPERS
+   DOM HELPERS
 ═══════════════════════════════════════════════════════ */
 function appendMessage(role, text) {
   const area = document.getElementById('chat-area');
-  const div = document.createElement('div');
+  const div  = document.createElement('div');
   div.className = `msg ${role}`;
-  div.id = `msg-static-${++msgIdCounter}`;
 
   const av = document.createElement('div');
   av.className = 'msg-avatar';
@@ -1103,7 +1119,7 @@ function appendMessage(role, text) {
 
 function createAssistantBubble(id) {
   const area = document.getElementById('chat-area');
-  const div = document.createElement('div');
+  const div  = document.createElement('div');
   div.className = 'msg assistant';
   div.id = id;
 
@@ -1113,7 +1129,6 @@ function createAssistantBubble(id) {
 
   const bub = document.createElement('div');
   bub.className = 'msg-bubble streaming';
-  bub._gen = (bub._gen || 0) + 1;
 
   div.appendChild(av);
   div.appendChild(bub);
@@ -1121,25 +1136,32 @@ function createAssistantBubble(id) {
   return bub;
 }
 
+/*
+ * FIX — no-flicker streaming:
+ * During streaming we render markdown incrementally via innerHTML (not
+ * textContent). A generation counter prevents stale RAFs from overwriting
+ * a newer update or a finalized bubble.
+ */
 function streamChunkToBubble(bubble, rawText) {
   bubble._latestText = rawText;
-  const currentGen = bubble._gen; 
   if (!bubble._rafPending) {
     bubble._rafPending = true;
     requestAnimationFrame(() => {
-      if (bubble._gen === currentGen) {
-        bubble.textContent = bubble._latestText;
-      }
       bubble._rafPending = false;
-      scrollToBottom();
+      if (!bubble._finalized) {
+        // Render markdown during streaming so code blocks/bold appear live
+        bubble.innerHTML = renderMarkdown(bubble._latestText);
+        scrollToBottom();
+      }
     });
   }
 }
 
 function finalizeBubble(bubble, text) {
-  bubble._gen = (bubble._gen || 0) + 1; 
+  // Cancel any pending RAF update so it doesn't overwrite the final render
+  bubble._finalized = true;
   bubble._rafPending = false;
-  bubble.classList.remove('streaming');
+  bubble.classList.remove('streaming'); // removes the blinking cursor ::after
   bubble.innerHTML = renderMarkdown(text);
   scrollToBottom();
 }
@@ -1155,45 +1177,71 @@ function scrollToBottom() {
 }
 
 /* ═══════════════════════════════════════════════════════
-   XSS-SAFE MARKDOWN PARSER
+   XSS-SAFE MARKDOWN RENDERER
+   FIX: single-pass escape order — escape HTML first on the raw string,
+   then extract code blocks into sentinels (so their content stays
+   escaped), then apply inline formatting on the safe string.
 ═══════════════════════════════════════════════════════ */
-function renderMarkdown(text) {
-  const blockSentinel = 'NOVA_BLOCK_' + Math.random().toString(36).slice(2) + '_';
-  const inlineSentinel = 'NOVA_INLINE_' + Math.random().toString(36).slice(2) + '_';
-  const blocks = [];
-  const inlineBlocks = [];
-  
-  let result = text.replace(/```([\w]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    const escaped = code.trim().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    blocks.push(`<pre><code>${escaped}</code></pre>`);
-    return `\x00${blockSentinel}${blocks.length - 1}\x00`;
-  });
-
-  result = result.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-  // FIXED: Inner code content is strictly explicitly escaped prior to buffer token assignments
-  result = result.replace(/`([^`\n]+)`/g, (_, inner) => {
-    const safeInner = inner.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    inlineBlocks.push(`<code>${safeInner}</code>`);
-    return `\x00${inlineSentinel}${inlineBlocks.length - 1}\x00`;
-  });
-
-  result = result
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*\n]+)\*/g,     '<em>$1</em>')
-    .replace(/^#{1,3} (.+)$/gm, (_, t) => `<strong style="color:var(--p2)">${t}</strong>`)
-    .replace(/^\s*[-•] (.+)$/gm, '• $1')
-    .replace(/\n/g, '<br>');
-
-  inlineBlocks.forEach((val, idx) => { result = result.replace(`\x00${inlineSentinel}${idx}\x00`, val); });
-  blocks.forEach((val, idx) => { result = result.replace(`\x00${blockSentinel}${idx}\x00`, val); });
-
-  return result;
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
-/* ═══════════════════════════════════
+function renderMarkdown(raw) {
+  // Unique sentinel prefix for this render call
+  const S = '\x00MD' + Math.random().toString(36).slice(2) + '_';
+  const blocks = [];
+
+  // 1. Extract fenced code blocks BEFORE any escaping so we can
+  //    escape their contents independently and protect them from
+  //    further replacements.
+  let text = raw.replace(/```([\w]*)\n?([\s\S]*?)```/g, (_, _lang, code) => {
+    const safe = escapeHtml(code.trimEnd());
+    blocks.push(`<pre><code>${safe}</code></pre>`);
+    return `${S}${blocks.length - 1}`;
+  });
+
+  // 2. Extract inline code the same way
+  text = text.replace(/`([^`\n]+)`/g, (_, inner) => {
+    const safe = escapeHtml(inner);
+    blocks.push(`<code>${safe}</code>`);
+    return `${S}${blocks.length - 1}`;
+  });
+
+  // 3. Now escape HTML in the remaining text (sentinels use \x00 so
+  //    they survive the replace unharmed)
+  text = escapeHtml(text);
+
+  // 4. Apply inline Markdown on the now-safe text
+  text = text
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g,     '<em>$1</em>')
+    .replace(/^#{1,3} (.+)$/gm,    (_, t) => `<strong style="color:var(--p2)">${t}</strong>`)
+    // Render unordered list items as actual <li> elements
+    .replace(/^[ \t]*[-*] (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>)/g, m => `<ul>${m}</ul>`)
+    // Double newline → paragraph break; single → <br>
+    .replace(/\n\n+/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+
+  // Wrap in paragraph if it contains </p><p>
+  if (text.includes('</p><p>')) text = `<p>${text}</p>`;
+
+  // 5. Restore code blocks (sentinel \x00 won't have been escaped
+  //    because escapeHtml only touches & < > ")
+  blocks.forEach((html, i) => {
+    text = text.split(`${S}${i}`).join(html);
+  });
+
+  return text;
+}
+
+/* ═══════════════════════════════════════════════════════
    INTERFACE CONTROLS
-═══════════════════════════════════ */
+═══════════════════════════════════════════════════════ */
 function autoResize(el) {
   if (!el) return;
   el.style.height = 'auto';
@@ -1209,18 +1257,15 @@ function newChat() {
   isStreaming = false;
   document.getElementById('send-btn').disabled = false;
   document.getElementById('typing-indicator').classList.remove('show');
-
-  const area = document.getElementById('chat-area');
-  area.innerHTML = buildWelcomeHTML();
-
+  document.getElementById('chat-area').innerHTML = buildWelcomeHTML();
   closeSidebar();
   document.getElementById('msg-input').focus();
   showToast('✦ New conversation started');
 }
 
 function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-  document.getElementById('sidebar-backdrop').classList.toggle('show');
+  const isOpen = document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-backdrop').classList.toggle('show', isOpen);
 }
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
@@ -1231,112 +1276,150 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 
 /* ═══════════════════════════════════════════════════════
    IMAGE GENERATION
+   FIX: handles both data: URLs (download via <a> blob) and
+        https: URLs (open in new tab). Disables button during fetch.
 ═══════════════════════════════════════════════════════ */
 async function generateImage() {
-  const prompt = document.getElementById('img-prompt').value.trim();
-  const size   = document.getElementById('img-size').value;
-  const result = document.getElementById('img-result');
+  const prompt  = document.getElementById('img-prompt').value.trim();
+  const size    = document.getElementById('img-size').value;
+  const result  = document.getElementById('img-result');
+  const genBtn  = document.getElementById('img-gen-btn');
 
   if (!prompt) { showToast('Please enter an image description'); return; }
 
+  // Reset & show loading state
   result.className = 'img-placeholder';
-  result.style.cssText = ''; 
+  result.style.cssText = '';
   result.innerHTML = `<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div><span>Generating image…</span>`;
+  genBtn.disabled = true;
 
   const imgController = new AbortController();
-  const timeoutId = setTimeout(() => imgController.abort(), 45000);
+  const timeoutId = setTimeout(() => imgController.abort(), 60000);
 
   try {
     const res = await fetch('/api/image', {
-      method: 'POST', 
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, size }),
       signal: imgController.signal
     });
     clearTimeout(timeoutId);
-    
+
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Generation failed');
+    if (!data.imageUrl) throw new Error('No image URL returned');
 
-    const validatedUrl = new URL(data.imageUrl, window.location.href);
-    if (!['https:', 'http:', 'blob:', 'data:'].includes(validatedUrl.protocol)) {
-      throw new Error('Unsafe remote source path schema blocked.');
+    // Security: only allow safe URL schemes
+    const isDataUrl = /^data:image\/(png|jpeg|webp|gif);base64,/.test(data.imageUrl);
+    let safeUrl;
+    if (isDataUrl) {
+      safeUrl = data.imageUrl; // data: URL from backend base64
+    } else {
+      const parsed = new URL(data.imageUrl, window.location.href);
+      if (!['https:', 'http:'].includes(parsed.protocol)) {
+        throw new Error('Unsafe URL scheme blocked');
+      }
+      safeUrl = parsed.href;
     }
 
+    // Build result UI
     result.className = '';
+    result.style.cssText = '';
     result.innerHTML = '';
 
     const img = document.createElement('img');
+    img.alt = prompt;
     img.style.cssText = 'width:100%;border-radius:var(--r);display:block;margin-bottom:10px;';
     img.onerror = () => {
       result.className = 'img-placeholder';
-      result.innerHTML = '<div class="placeholder-icon">❌</div><span>Image failed to load.</span>';
+      result.innerHTML = '<div class="placeholder-icon">❌</div><span>Image failed to load</span>';
     };
-    img.src = validatedUrl.href;
+    img.src = safeUrl;
 
-    const badge = document.createElement('div');
-    badge.style.cssText = 'font-family:"DM Mono",monospace;font-size:9px;color:var(--text3);text-align:right;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;';
-    badge.textContent = `via ${data.source || 'AI'}`;
+    const sourceBadge = document.createElement('div');
+    sourceBadge.style.cssText = 'font-family:"DM Mono",monospace;font-size:9px;color:var(--text3);text-align:right;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;';
+    sourceBadge.textContent = `via ${data.source || 'AI'}`;
 
+    // FIX: data: URLs → anchor download; https: URLs → window.open in new tab
     const dlBtn = document.createElement('button');
     dlBtn.className = 'modal-btn';
     dlBtn.textContent = '⬇️ Download Image';
-    
-    // FIXED: Cross-Origin safe execution fallback loop context mapping logic
-    dlBtn.onclick = () => {
-      window.open(validatedUrl.href, '_blank', 'noopener,noreferrer');
-    };
+    if (isDataUrl) {
+      dlBtn.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = safeUrl;
+        a.download = `nova-ai-${Date.now()}.png`;
+        a.click();
+      });
+    } else {
+      dlBtn.addEventListener('click', () => {
+        window.open(safeUrl, '_blank', 'noopener,noreferrer');
+      });
+    }
 
     result.appendChild(img);
-    result.appendChild(badge);
+    result.appendChild(sourceBadge);
     result.appendChild(dlBtn);
+
   } catch (err) {
     clearTimeout(timeoutId);
+    const msg = err.name === 'AbortError' ? 'Generation timed out (60s)' : err.message;
     result.className = 'img-placeholder';
-    result.style.cssText = ''; 
-    
-    const isTimeout = err.name === 'AbortError';
-    const errMsg = isTimeout ? 'Generation timed out (45s)' : err.message;
-    
-    result.innerHTML = `<div class="placeholder-icon">❌</div><span>${errMsg}</span>`;
-    showToast('Image failed: ' + errMsg);
+    result.style.cssText = '';
+    result.innerHTML = `<div class="placeholder-icon">❌</div><span>${escapeHtml(msg)}</span>`;
+    showToast('Image failed: ' + msg);
+  } finally {
+    genBtn.disabled = false;
   }
 }
 
 /* ═══════════════════════════════════════════════════════
    FILE HANDLERS
+   FIX: delete is now delegated from #file-list (set up in
+        setupEventDelegation), so onclick="" on dynamic HTML
+        is not needed and avoids any CSP issues.
 ═══════════════════════════════════════════════════════ */
+const FILE_ICONS = { pdf:'📕', txt:'📝', csv:'📊', json:'⚙️', md:'📋', png:'🖼️', jpg:'🖼️', jpeg:'🖼️' };
 let selectedFile = null;
-function handleFileSelect(input) { selectedFile = input.files[0]; }
+
+function handleFileSelect(input) {
+  selectedFile = input.files[0] || null;
+}
+
 function uploadFile() {
   if (!selectedFile) { showToast('Please choose a file first'); return; }
-  const icons = {pdf:'📕',txt:'📝',csv:'📊',json:'⚙️',md:'📋',png:'🖼️',jpg:'🖼️',jpeg:'🖼️'};
-  const ext = selectedFile.name.split('.').pop().toLowerCase();
+  const ext  = selectedFile.name.split('.').pop().toLowerCase();
+  const icon = FILE_ICONS[ext] || '📄';
+  const safeName = escapeHtml(selectedFile.name);
+
   const item = document.createElement('div');
   item.className = 'file-item';
-  
-  // FIXED: Explicitly mapped onclick triggers directly onto dynamically appended buttons
+  // FIX: no inline onclick — delete is handled by delegated listener on #file-list
   item.innerHTML = `
-    <span class="file-item-icon">${icons[ext] || '📄'}</span>
-    <span class="file-item-name">${selectedFile.name}</span>
-    <button class="file-item-del" onclick="removeFile(this)" aria-label="Remove file">✕</button>`;
+    <span class="file-item-icon">${icon}</span>
+    <span class="file-item-name" title="${safeName}">${safeName}</span>
+    <button class="file-item-del" aria-label="Remove file">✕</button>`;
+
   document.getElementById('file-list').appendChild(item);
   document.getElementById('file-input').value = '';
   selectedFile = null;
-  showToast('✅ File added');
+  showToast('✅ File added: ' + selectedFile?.name || '');
 }
-function removeFile(btn) { btn.closest('.file-item').remove(); }
 
 /* ═══════════════════════════════════════════════════════
-   VOICE INPUT (SPEECH RECOGNITION)
+   VOICE INPUT
 ═══════════════════════════════════════════════════════ */
 function initSpeechRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { const m = document.getElementById('mic-btn'); if (m) m.style.display = 'none'; return; }
+  if (!SR) {
+    const m = document.getElementById('mic-btn');
+    if (m) m.style.display = 'none';
+    return;
+  }
   recognition = new SR();
-  recognition.continuous = false;
+  recognition.continuous    = false;
   recognition.interimResults = false;
-  recognition.lang = 'en-US';
+  recognition.lang           = 'en-US';
 
   recognition.onresult = e => {
     const transcript = e.results[0][0].transcript;
@@ -1346,14 +1429,10 @@ function initSpeechRecognition() {
     input.focus();
     showToast('🎙️ Tap Send or press Enter to confirm');
   };
-  
-  recognition.onerror = e => { 
-    if (e.error === 'not-allowed') {
-      showToast('⚠️ Microphone permission denied');
-    } else if (e.error !== 'no-speech') {
-      showToast('⚠️ Mic error: ' + e.error); 
-    }
-    resetMicUI(); 
+  recognition.onerror = e => {
+    if (e.error === 'not-allowed') showToast('⚠️ Microphone permission denied');
+    else if (e.error !== 'no-speech') showToast('⚠️ Mic error: ' + e.error);
+    resetMicUI();
   };
   recognition.onend = resetMicUI;
 }
@@ -1371,16 +1450,22 @@ function toggleVoiceInput() {
       showToast('🎙️ Listening… speak now');
     } catch (e) {
       showToast('⚠️ Could not start mic: ' + e.message);
+      resetMicUI();
     }
   }
 }
-function resetMicUI() { isListening = false; document.getElementById('mic-btn')?.classList.remove('recording'); }
+function resetMicUI() {
+  isListening = false;
+  document.getElementById('mic-btn')?.classList.remove('recording');
+}
 
 /* ═══════════════════════════════════════════════════════
-   VOICE OUTPUT (SPEECH SYNTHESIS)
+   VOICE OUTPUT
 ═══════════════════════════════════════════════════════ */
 function safariSpeechUnlock() {
-  if (isSpeechEnabled && window.speechSynthesis) window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+  if (isSpeechEnabled && window.speechSynthesis) {
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+  }
 }
 
 function speakText(text) {
@@ -1392,11 +1477,16 @@ function speakText(text) {
     .replace(/[*#_~]/g, '')
     .replace(/\n+/g, '. ')
     .trim();
+  if (!clean) return;
   const utter = new SpeechSynthesisUtterance(clean);
-  utter.lang = 'en-US'; utter.rate = 1.0; utter.pitch = 1.0;
+  utter.lang  = 'en-US';
+  utter.rate  = 1.0;
+  utter.pitch = 1.0;
   const voices = window.speechSynthesis.getVoices();
-  const voice = voices.find(v => v.lang.startsWith('en') &&
-    (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
+  const voice  = voices.find(v =>
+    v.lang.startsWith('en') &&
+    (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft'))
+  );
   if (voice) utter.voice = voice;
   window.speechSynthesis.speak(utter);
 }
@@ -1416,7 +1506,7 @@ function toggleSpeech() {
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOAST SYSTEM
+   TOAST
 ═══════════════════════════════════════════════════════ */
 let toastTimer;
 function showToast(msg) {
