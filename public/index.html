@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data: https:; connect-src 'self' https:; script-src 'self' 'unsafe-inline';">
 <title>Nova AI — Your Intelligent Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500&display=swap" rel="stylesheet"/>
@@ -43,7 +44,7 @@ body {
 * { scrollbar-width:thin; scrollbar-color:rgba(124,77,255,0.3) transparent; }
 
 /* ═══════════════════════════════════
-   BACKGROUND  (CSS-only, no JS canvas)
+   BACKGROUND
 ═══════════════════════════════════ */
 .bg-canvas {
   position:fixed; inset:0; z-index:0; pointer-events:none;
@@ -52,20 +53,16 @@ body {
     radial-gradient(ellipse 60% 40% at 80% 90%, rgba(0,198,255,0.08) 0%, transparent 50%),
     var(--bg);
 }
-/* grid: paint-only layer, GPU composited */
 .grid-overlay {
   position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.02;
   background-image:
     linear-gradient(rgba(124,77,255,1) 1px, transparent 1px),
     linear-gradient(90deg, rgba(124,77,255,1) 1px, transparent 1px);
   background-size:60px 60px;
-  will-change:auto; /* NOT transform — it's static */
 }
-/* Orbs: transform-only animation so browser uses compositor thread */
 .orb {
   position:fixed; border-radius:50%; pointer-events:none; z-index:0;
   filter:blur(70px);
-  will-change:transform;
 }
 .orb-1 {
   width:380px; height:380px; top:-80px; left:-80px;
@@ -101,8 +98,6 @@ body {
   display:flex; flex-direction:column;
   padding:20px 14px;
   position:relative; z-index:10;
-  overflow:hidden;
-  /* GPU-composited slide */
   will-change:transform;
   transition:transform var(--trans);
 }
@@ -169,7 +164,7 @@ body {
   padding:9px 10px; border-radius:10px;
   cursor:pointer; border:1px solid transparent;
   transition:background var(--trans), border-color var(--trans);
-  min-height:44px; /* touch-friendly */
+  min-height:44px;
 }
 .conv-item:hover { background:var(--glass2); border-color:var(--border); }
 .conv-item.active { background:rgba(124,77,255,0.12); border-color:var(--border2); }
@@ -181,9 +176,11 @@ body {
 }
 .conv-item:hover .conv-title { color:var(--text); }
 .conv-del {
+  background:none; border:none; outline:none;
   opacity:0; font-size:11px; color:var(--text3); cursor:pointer;
-  padding:4px 6px; border-radius:4px; transition:opacity var(--trans), color var(--trans);
-  flex-shrink:0; min-width:24px; text-align:center;
+  padding:4px; border-radius:4px; transition:opacity var(--trans), color var(--trans);
+  flex-shrink:0; text-align:center;
+  min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center;
 }
 .conv-item:hover .conv-del { opacity:1; }
 .conv-del:hover { color:#ff6b6b; }
@@ -208,7 +205,8 @@ body {
 .logout-btn {
   background:none; border:none; color:var(--text3); cursor:pointer;
   font-size:15px; padding:6px; border-radius:6px;
-  transition:color var(--trans); min-width:32px; min-height:32px;
+  transition:color var(--trans);
+  min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center;
 }
 .logout-btn:hover { color:#ff6b6b; }
 
@@ -220,7 +218,6 @@ body {
   overflow:hidden; position:relative; min-width:0;
 }
 
-/* TOPBAR */
 #topbar {
   display:flex; align-items:center; gap:10px;
   padding:14px 20px;
@@ -259,14 +256,12 @@ body {
 #chat-area {
   flex:1; overflow-y:auto; padding:24px 20px;
   display:flex; flex-direction:column; gap:16px;
-  /* layout containment: changes inside don't force parent reflow */
-  contain:layout style;
+  contain:layout style paint;
   overscroll-behavior:contain;
 }
 #chat-area::-webkit-scrollbar { width:4px; }
 #chat-area::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
 
-/* WELCOME */
 #welcome {
   display:flex; flex-direction:column;
   align-items:center; justify-content:center;
@@ -318,7 +313,7 @@ body {
   width:30px; height:30px; border-radius:50%; flex-shrink:0;
   display:flex; align-items:center; justify-content:center;
   font-size:12px; font-weight:700; margin-top:4px;
-  min-width:30px; /* prevent shrink on narrow screens */
+  min-width:30px;
 }
 .msg.assistant .msg-avatar { background:linear-gradient(135deg,var(--p1),var(--b1)); box-shadow:0 0 10px var(--glow); }
 .msg.user .msg-avatar { background:linear-gradient(135deg,#2d1b69,var(--p1)); }
@@ -338,10 +333,8 @@ body {
   background:var(--glass); border:1px solid var(--border);
   border-bottom-left-radius:4px;
 }
-/* Streaming state: raw text, monospace, no extra layout cost */
 .msg-bubble.streaming { white-space:pre-wrap; }
 
-/* Markdown styles */
 .msg-bubble strong { color:var(--p2); font-weight:600; }
 .msg-bubble em { color:var(--b1); font-style:italic; }
 .msg-bubble code {
@@ -379,7 +372,6 @@ body {
   width:7px; height:7px; border-radius:50%;
   background:var(--p1); opacity:0.5;
   animation:dot-bounce 1.2s ease-in-out infinite;
-  will-change:transform, opacity;
 }
 .dot:nth-child(2) { animation-delay:0.2s; background:var(--b1); }
 .dot:nth-child(3) { animation-delay:0.4s; background:var(--p2); }
@@ -397,7 +389,6 @@ body {
   border-top:1px solid var(--border);
   backdrop-filter:blur(20px);
   -webkit-backdrop-filter:blur(20px);
-  /* safe-area for iPhone home bar */
   padding-bottom:max(16px, env(safe-area-inset-bottom));
 }
 #input-wrap {
@@ -534,7 +525,7 @@ body {
   width:min(460px,92vw); max-height:90dvh; overflow-y:auto;
   box-shadow:0 0 60px var(--glow), 0 40px 80px rgba(0,0,0,0.5);
   animation:fadeUp 0.25s ease both;
-  position:relative; overflow:hidden;
+  position:relative;
 }
 .modal::before {
   content:''; position:absolute; top:0; left:0; right:0; height:2px;
@@ -610,10 +601,19 @@ body {
    SIDEBAR BACKDROP (mobile)
 ═══════════════════════════════════ */
 .sidebar-backdrop {
-  display:none; position:fixed; inset:0; z-index:9;
+  position:fixed; inset:0; z-index:9;
   background:rgba(0,0,0,0.6);
   backdrop-filter:blur(4px);
   -webkit-backdrop-filter:blur(4px);
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transition:opacity 0.3s ease, visibility 0.3s ease;
+}
+.sidebar-backdrop.show {
+  opacity:1;
+  visibility:visible;
+  pointer-events:auto;
 }
 
 /* ═══════════════════════════════════
@@ -638,11 +638,17 @@ body {
   #sidebar {
     position:fixed; top:0; left:0; bottom:0; z-index:10;
     transform:translateX(-100%);
+    pointer-events:none;
+    visibility:hidden;
+    transition:transform var(--trans), visibility 0s linear var(--trans);
   }
-  #sidebar.open { transform:translateX(0); }
+  #sidebar.open {
+    transform:translateX(0);
+    pointer-events:auto;
+    visibility:visible;
+    transition:transform var(--trans), visibility 0s linear 0s;
+  }
   .hamburger { display:flex; }
-  .sidebar-backdrop.show { display:block; }
-  /* hide button labels on mobile topbar */
   .topbar-actions .action-btn .btn-label { display:none; }
   .topbar-actions .action-btn { padding:8px 10px; gap:0; }
   .msg-bubble { max-width:88%; }
@@ -665,8 +671,7 @@ body {
 
 <div id="app">
 
-  <!-- ── SIDEBAR ── -->
-  <aside id="sidebar">
+  <aside id="sidebar" onclick="event.stopPropagation()">
     <div class="sidebar-logo">
       <div class="logo-icon">✦</div>
       <span class="logo-text">Nova AI</span>
@@ -680,17 +685,17 @@ body {
       <div class="conv-item active">
         <span class="conv-icon">💬</span>
         <span class="conv-title">How to code in Python</span>
-        <span class="conv-del" onclick="deleteConv(this)" title="Delete">✕</span>
+        <button class="conv-del" title="Delete" aria-label="Delete conversation">✕</button>
       </div>
       <div class="conv-item">
         <span class="conv-icon">🎨</span>
         <span class="conv-title">Image generation ideas</span>
-        <span class="conv-del" onclick="deleteConv(this)" title="Delete">✕</span>
+        <button class="conv-del" title="Delete" aria-label="Delete conversation">✕</button>
       </div>
       <div class="conv-item">
         <span class="conv-icon">📈</span>
         <span class="conv-title">Marketing tips for SaaS</span>
-        <span class="conv-del" onclick="deleteConv(this)" title="Delete">✕</span>
+        <button class="conv-del" title="Delete" aria-label="Delete conversation">✕</button>
       </div>
     </div>
     <div class="sidebar-footer">
@@ -705,7 +710,6 @@ body {
     </div>
   </aside>
 
-  <!-- ── MAIN ── -->
   <main id="main">
 
     <header id="topbar">
@@ -724,21 +728,8 @@ body {
       </div>
     </header>
 
-    <div id="chat-area">
-      <div id="welcome">
-        <div class="welcome-icon">✦</div>
-        <div class="welcome-title">What can I help<br>you with today?</div>
-        <div class="welcome-sub">Ask me anything — from code and writing to analysis and creative ideas.</div>
-        <div class="chips">
-          <button class="chip" onclick="fillChip('Brainstorm creative ideas for my project')">💡 Brainstorm ideas</button>
-          <button class="chip" onclick="fillChip('Write clean code for me in Python')">⌨️ Write code</button>
-          <button class="chip" onclick="fillChip('Help me draft compelling content')">✍️ Draft content</button>
-          <button class="chip" onclick="fillChip('Explain a complex concept simply')">🔭 Explain a concept</button>
-        </div>
-      </div>
-    </div>
+    <div id="chat-area"></div>
 
-    <!-- Typing indicator lives OUTSIDE chat-area so it doesn't trigger contain reflows -->
     <div id="typing-wrap">
       <div id="typing-indicator">
         <div class="typing-avatar">✦</div>
@@ -768,7 +759,6 @@ body {
   </main>
 </div>
 
-<!-- LOGIN OVERLAY -->
 <div id="login-overlay">
   <div class="login-card">
     <span class="login-logo">✦</span>
@@ -782,7 +772,6 @@ body {
   </div>
 </div>
 
-<!-- IMAGE MODAL -->
 <div class="modal-overlay" id="image-modal">
   <div class="modal">
     <div class="modal-header">
@@ -805,7 +794,6 @@ body {
   </div>
 </div>
 
-<!-- FILE MODAL -->
 <div class="modal-overlay" id="file-modal">
   <div class="modal">
     <div class="modal-header">
@@ -819,13 +807,8 @@ body {
     <button class="modal-btn" onclick="uploadFile()">📤 Upload File</button>
     <div class="file-list" id="file-list">
       <div class="file-item">
-        <span class="file-item-icon">📄</span>
+        <span class="file-item-icon">📊</span>
         <span class="file-item-name">example_data.csv</span>
-        <button class="file-item-del" onclick="removeFile(this)" aria-label="Remove file">✕</button>
-      </div>
-      <div class="file-item">
-        <span class="file-item-icon">📝</span>
-        <span class="file-item-name">notes.txt</span>
         <button class="file-item-del" onclick="removeFile(this)" aria-label="Remove file">✕</button>
       </div>
     </div>
@@ -836,60 +819,143 @@ body {
 
 <script>
 /* ═══════════════════════════════════════════════════════
-   STATE
+   CONFIG & CONSTANTS
 ═══════════════════════════════════════════════════════ */
-let isLoggedIn     = false;
-let isStreaming    = false;
-let msgHistory     = [];
-let recognition    = null;
-let isListening    = false;
-let isSpeechEnabled = false;
+const MAX_CONTEXT_TURNS = 10;
+const GUEST_TIMEOUT_MS  = 10000;
 
 /* ═══════════════════════════════════════════════════════
-   INIT
+   STATE MANAGEMENT
+═══════════════════════════════════════════════════════ */
+let isLoggedIn           = false;
+let isStreaming          = false;
+let msgHistory           = [];
+let msgIdCounter         = 0;
+let recognition          = null;
+let isListening          = false;
+let isSpeechEnabled      = false;
+let activeChatController = null;
+let isScrollPending      = false;
+
+/* ═══════════════════════════════════════════════════════
+   INITIALIZATION
 ═══════════════════════════════════════════════════════ */
 window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('chat-area').innerHTML = buildWelcomeHTML();
+
   const token = sessionStorage.getItem('nova_token');
-  if (token) finishLogin(sessionStorage.getItem('nova_user') || 'Guest');
+  const storedUser = sessionStorage.getItem('nova_token_user') || 'Guest';
+  if (token) finishLogin(storedUser);
+  
   autoResize(document.getElementById('msg-input'));
   initSpeechRecognition();
+  setupEventDelegation();
+  
   if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
   }
-  // Close modals on backdrop click
-  document.querySelectorAll('.modal-overlay').forEach(o => {
-    o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => { 
+      if (e.target === overlay) overlay.classList.remove('open'); 
+    });
   });
 });
 
 /* ═══════════════════════════════════════════════════════
-   AUTH
+   TEMPLATE ENGINE
+═══════════════════════════════════════════════════════ */
+function buildWelcomeHTML() {
+  return `
+    <div id="welcome">
+      <div class="welcome-icon">✦</div>
+      <div class="welcome-title">What can I help<br>you with today?</div>
+      <div class="welcome-sub">Ask me anything — from code and writing to analysis and creative ideas.</div>
+      <div class="chips">
+        <button class="chip" data-prompt="Brainstorm creative ideas for my project">💡 Brainstorm ideas</button>
+        <button class="chip" data-prompt="Write clean code for me in Python">⌨️ Write code</button>
+        <button class="chip" data-prompt="Help me draft compelling content">✍️ Draft content</button>
+        <button class="chip" data-prompt="Explain a complex concept simply">🔭 Explain a concept</button>
+      </div>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   EVENT DELEGATION
+═══════════════════════════════════════════════════════ */
+function setupEventDelegation() {
+  document.getElementById('conv-list').addEventListener('click', e => {
+    const delBtn = e.target.closest('.conv-del');
+    if (delBtn) {
+      e.stopPropagation();
+      const item = delBtn.closest('.conv-item');
+      const wasActive = item.classList.contains('active');
+      item.remove();
+      if (wasActive) newChat();
+      return;
+    }
+    const convItem = e.target.closest('.conv-item');
+    if (convItem) {
+      document.querySelectorAll('.conv-item').forEach(item => item.classList.remove('active'));
+      convItem.classList.add('active');
+      
+      // FIXED: Flushes alternate controllers and shifts mock content context 
+      if (activeChatController) activeChatController.abort();
+      msgHistory = [];
+      document.getElementById('chat-area').innerHTML = `
+        <div style="text-align:center; padding:40px; color:var(--text2); font-family:'DM Mono',monospace; font-size:13px;">
+          🔄 Loading conversation: "${convItem.querySelector('.conv-title').textContent}"...
+        </div>`;
+      closeSidebar();
+    }
+  });
+
+  document.getElementById('chat-area').addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (chip && chip.hasAttribute('data-prompt')) {
+      fillChip(chip.getAttribute('data-prompt'));
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   AUTHENTICATION
 ═══════════════════════════════════════════════════════ */
 async function guestLogin() {
   const btn = document.querySelector('.guest-btn');
   btn.disabled = true;
   btn.querySelector('span').textContent = '⏳ Connecting…';
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GUEST_TIMEOUT_MS);
+
   try {
-    const res  = await fetch('/api/guest', { method:'POST', headers:{'Content-Type':'application/json'} });
+    const res = await fetch('/api/guest', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
     const data = await res.json();
     if (data.success) {
       sessionStorage.setItem('nova_token', data.token);
-      sessionStorage.setItem('nova_user',  data.username);
+      sessionStorage.setItem('nova_token_user', data.username);
       finishLogin(data.username);
-    } else throw new Error('Login failed');
-  } catch {
+    } else throw new Error('Authentication rejected');
+  } catch (err) {
     btn.disabled = false;
     btn.querySelector('span').textContent = '🚀 Continue as Guest';
-    showToast('⚠️ Connection error — retrying…');
+    showToast(err.name === 'AbortError' ? '⚠️ Request timed out — retry' : '⚠️ Connection error — retry');
   }
 }
 
 function finishLogin(username) {
+  const safeUsername = (typeof username === 'string' && username.trim()) ? username : 'Guest';
   isLoggedIn = true;
   document.getElementById('login-overlay').style.display = 'none';
-  document.getElementById('user-display-name').textContent = username;
-  document.getElementById('user-avatar').textContent = username[0].toUpperCase();
+  document.getElementById('user-display-name').textContent = safeUsername;
+  document.getElementById('user-avatar').textContent = safeUsername[0].toUpperCase();
   document.getElementById('msg-input').focus();
 }
 
@@ -900,7 +966,7 @@ function logout() {
 }
 
 /* ═══════════════════════════════════════════════════════
-   CHAT — SEND
+   CORE CONVERSATION FLOW
 ═══════════════════════════════════════════════════════ */
 function fillChip(text) {
   const input = document.getElementById('msg-input');
@@ -910,18 +976,24 @@ function fillChip(text) {
 }
 
 function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isStreaming) sendMessage(); }
+  if (e.key === 'Enter' && !e.shiftKey) { 
+    e.preventDefault(); 
+    if (!isStreaming) sendMessage(); 
+  }
 }
 
 async function sendMessage() {
-  if (!isLoggedIn)  { showToast('Please log in first'); return; }
-  const input   = document.getElementById('msg-input');
+  if (!isLoggedIn) { showToast('Please log in first'); return; }
+  const input = document.getElementById('msg-input');
   const message = input.value.trim();
   if (!message || isStreaming) return;
 
   safariSpeechUnlock();
 
-  // Remove welcome screen on first message
+  if (activeChatController) activeChatController.abort();
+  const currentController = new AbortController();
+  activeChatController = currentController;
+
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.remove();
 
@@ -930,35 +1002,40 @@ async function sendMessage() {
   isStreaming = true;
   document.getElementById('send-btn').disabled = true;
 
-  msgHistory.push({ role:'user', content:message });
+  msgHistory.push({ role: 'user', content: message });
+  if (msgHistory.length > MAX_CONTEXT_TURNS * 2) {
+    msgHistory.splice(0, msgHistory.length - (MAX_CONTEXT_TURNS * 2));
+  }
+
   appendMessage('user', message);
 
   const typing = document.getElementById('typing-indicator');
   typing.classList.add('show');
   scrollToBottom();
 
-  const assistantId = 'msg-' + Date.now();
+  const assistantId = `msg-session-${++msgIdCounter}`;
   let fullReply = '';
 
   try {
     const res = await fetch('/api/chat', {
-      method:  'POST',
-      headers: {'Content-Type':'application/json'},
-      body:    JSON.stringify({ message, history: msgHistory.slice(-10) })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: msgHistory }),
+      signal: currentController.signal
     });
-    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    if (!res.ok) throw new Error(`Status ${res.status}`);
 
-    const reader  = res.body.getReader();
+    const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let bubble = null; // the .msg-bubble element for streaming
+    let bubble = null;
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream:true });
+      buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete line
+      buffer = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -979,35 +1056,38 @@ async function sendMessage() {
           streamChunkToBubble(bubble, fullReply);
         }
         if (data.done) {
-          // Final render: full markdown pass once, not on every chunk
           if (bubble) finalizeBubble(bubble, fullReply);
-          msgHistory.push({ role:'assistant', content:fullReply });
+          msgHistory.push({ role: 'assistant', content: fullReply });
           if (isSpeechEnabled && fullReply) speakText(fullReply);
         }
       }
     }
-  } catch {
-    typing.classList.remove('show');
-    appendMessage('assistant', '⚠️ Could not reach Nova AI. Please try again.');
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      typing.classList.remove('show');
+      appendMessage('assistant', '⚠️ Could not reach Nova AI. Please try again.');
+    }
+  } finally {
+    if (activeChatController === currentController) {
+      typing.classList.remove('show');
+      isStreaming = false;
+      document.getElementById('send-btn').disabled = false;
+      input.focus();
+      scrollToBottom();
+    }
   }
-
-  typing.classList.remove('show');
-  isStreaming = false;
-  document.getElementById('send-btn').disabled = false;
-  input.focus();
-  scrollToBottom();
 }
 
 /* ═══════════════════════════════════════════════════════
-   CHAT — DOM HELPERS
+   DOM MANIPULATION HELPERS
 ═══════════════════════════════════════════════════════ */
 function appendMessage(role, text) {
-  const area   = document.getElementById('chat-area');
-  const div    = document.createElement('div');
+  const area = document.getElementById('chat-area');
+  const div = document.createElement('div');
   div.className = `msg ${role}`;
-  div.id        = 'msg-' + Date.now();
+  div.id = `msg-static-${++msgIdCounter}`;
 
-  const av  = document.createElement('div');
+  const av = document.createElement('div');
   av.className = 'msg-avatar';
   av.textContent = role === 'user' ? '👤' : '✦';
 
@@ -1018,13 +1098,12 @@ function appendMessage(role, text) {
   div.appendChild(av);
   div.appendChild(bub);
   area.appendChild(div);
-  scheduleScroll();
+  scrollToBottom();
 }
 
-/** Creates assistant bubble for streaming. Returns the bubble element. */
 function createAssistantBubble(id) {
   const area = document.getElementById('chat-area');
-  const div  = document.createElement('div');
+  const div = document.createElement('div');
   div.className = 'msg assistant';
   div.id = id;
 
@@ -1034,6 +1113,7 @@ function createAssistantBubble(id) {
 
   const bub = document.createElement('div');
   bub.className = 'msg-bubble streaming';
+  bub._gen = (bub._gen || 0) + 1;
 
   div.appendChild(av);
   div.appendChild(bub);
@@ -1041,119 +1121,103 @@ function createAssistantBubble(id) {
   return bub;
 }
 
-/**
- * Incremental stream update — batched to one rAF per frame.
- * Uses textContent (no HTML parsing cost) while streaming.
- */
 function streamChunkToBubble(bubble, rawText) {
   bubble._latestText = rawText;
+  const currentGen = bubble._gen; 
   if (!bubble._rafPending) {
     bubble._rafPending = true;
     requestAnimationFrame(() => {
-      bubble.textContent = bubble._latestText;
+      if (bubble._gen === currentGen) {
+        bubble.textContent = bubble._latestText;
+      }
       bubble._rafPending = false;
-      scheduleScroll();
+      scrollToBottom();
     });
   }
 }
 
-/** Called once streaming is done: full markdown render. */
 function finalizeBubble(bubble, text) {
-  bubble._rafPending = false; // cancel any pending raw update
+  bubble._gen = (bubble._gen || 0) + 1; 
+  bubble._rafPending = false;
   bubble.classList.remove('streaming');
   bubble.innerHTML = renderMarkdown(text);
-  scheduleScroll();
+  scrollToBottom();
 }
 
-/* Throttled scroll — at most once per animation frame */
-let _scrollPending = false;
-function scheduleScroll() {
-  if (_scrollPending) return;
-  _scrollPending = true;
+function scrollToBottom() {
+  if (isScrollPending) return;
+  isScrollPending = true;
   requestAnimationFrame(() => {
-    document.getElementById('chat-area').scrollTop =
-      document.getElementById('chat-area').scrollHeight;
-    _scrollPending = false;
+    const area = document.getElementById('chat-area');
+    if (area) area.scrollTop = area.scrollHeight;
+    isScrollPending = false;
   });
 }
-const scrollToBottom = scheduleScroll; // alias
 
 /* ═══════════════════════════════════════════════════════
-   MARKDOWN RENDERER  (safe, no external lib)
+   XSS-SAFE MARKDOWN PARSER
 ═══════════════════════════════════════════════════════ */
 function renderMarkdown(text) {
-  // 1. Hoist code blocks to avoid HTML-escaping their content
+  const blockSentinel = 'NOVA_BLOCK_' + Math.random().toString(36).slice(2) + '_';
+  const inlineSentinel = 'NOVA_INLINE_' + Math.random().toString(36).slice(2) + '_';
   const blocks = [];
+  const inlineBlocks = [];
+  
   let result = text.replace(/```([\w]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    const escaped = code.trim()
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const escaped = code.trim().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     blocks.push(`<pre><code>${escaped}</code></pre>`);
-    return `\x00BLK${blocks.length - 1}\x00`;
+    return `\x00${blockSentinel}${blocks.length - 1}\x00`;
   });
 
-  // 2. HTML-escape everything else
   result = result.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  // 3. Inline markdown
+  // FIXED: Inner code content is strictly explicitly escaped prior to buffer token assignments
+  result = result.replace(/`([^`\n]+)`/g, (_, inner) => {
+    const safeInner = inner.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    inlineBlocks.push(`<code>${safeInner}</code>`);
+    return `\x00${inlineSentinel}${inlineBlocks.length - 1}\x00`;
+  });
+
   result = result
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*\n]+)\*/g,     '<em>$1</em>')
     .replace(/^#{1,3} (.+)$/gm, (_, t) => `<strong style="color:var(--p2)">${t}</strong>`)
-    .replace(/^\- (.+)$/gm, '• $1')
+    .replace(/^\s*[-•] (.+)$/gm, '• $1')
     .replace(/\n/g, '<br>');
 
-  // 4. Restore code blocks
-  blocks.forEach((b, i) => { result = result.replace(`\x00BLK${i}\x00`, b); });
+  inlineBlocks.forEach((val, idx) => { result = result.replace(`\x00${inlineSentinel}${idx}\x00`, val); });
+  blocks.forEach((val, idx) => { result = result.replace(`\x00${blockSentinel}${idx}\x00`, val); });
+
   return result;
 }
 
-/* ═══════════════════════════════════════════════════════
-   NEW CHAT
-═══════════════════════════════════════════════════════ */
-function newChat() {
-  msgHistory = [];
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
-  isStreaming = false;
-  document.getElementById('send-btn').disabled = false;
-  document.getElementById('typing-indicator').classList.remove('show');
-
-  const area = document.getElementById('chat-area');
-  area.innerHTML = '';
-
-  const welcome = document.createElement('div');
-  welcome.id = 'welcome';
-  welcome.innerHTML = `
-    <div class="welcome-icon">✦</div>
-    <div class="welcome-title">What can I help<br>you with today?</div>
-    <div class="welcome-sub">Ask me anything — from code and writing to analysis and creative ideas.</div>
-    <div class="chips">
-      <button class="chip" onclick="fillChip('Brainstorm creative ideas for my project')">💡 Brainstorm ideas</button>
-      <button class="chip" onclick="fillChip('Write clean code for me in Python')">⌨️ Write code</button>
-      <button class="chip" onclick="fillChip('Help me draft compelling content')">✍️ Draft content</button>
-      <button class="chip" onclick="fillChip('Explain a complex concept simply')">🔭 Explain a concept</button>
-    </div>`;
-  area.appendChild(welcome);
-
-  closeSidebar();
-  document.getElementById('msg-input').focus();
-  showToast('✦ New conversation started');
-}
-
-function deleteConv(el) { el.closest('.conv-item').remove(); }
-
-/* ═══════════════════════════════════════════════════════
-   INPUT HELPERS
-═══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════
+   INTERFACE CONTROLS
+═══════════════════════════════════ */
 function autoResize(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 140) + 'px';
 }
 
-/* ═══════════════════════════════════════════════════════
-   SIDEBAR / MODAL TOGGLES
-═══════════════════════════════════════════════════════ */
+function newChat() {
+  if (activeChatController) {
+    activeChatController.abort();
+    activeChatController = null;
+  }
+  msgHistory = [];
+  isStreaming = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('typing-indicator').classList.remove('show');
+
+  const area = document.getElementById('chat-area');
+  area.innerHTML = buildWelcomeHTML();
+
+  closeSidebar();
+  document.getElementById('msg-input').focus();
+  showToast('✦ New conversation started');
+}
+
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('sidebar-backdrop').classList.toggle('show');
@@ -1176,66 +1240,86 @@ async function generateImage() {
   if (!prompt) { showToast('Please enter an image description'); return; }
 
   result.className = 'img-placeholder';
-  result.innerHTML = `<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div>
-    <span>Generating image…</span>`;
+  result.style.cssText = ''; 
+  result.innerHTML = `<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div><span>Generating image…</span>`;
+
+  const imgController = new AbortController();
+  const timeoutId = setTimeout(() => imgController.abort(), 45000);
 
   try {
-    const res  = await fetch('/api/image', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ prompt, size })
+    const res = await fetch('/api/image', {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, size }),
+      signal: imgController.signal
     });
+    clearTimeout(timeoutId);
+    
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Generation failed');
 
+    const validatedUrl = new URL(data.imageUrl, window.location.href);
+    if (!['https:', 'http:', 'blob:', 'data:'].includes(validatedUrl.protocol)) {
+      throw new Error('Unsafe remote source path schema blocked.');
+    }
+
     result.className = '';
-    result.style.cssText = '';
     result.innerHTML = '';
 
     const img = document.createElement('img');
-    img.src = data.imageUrl;
     img.style.cssText = 'width:100%;border-radius:var(--r);display:block;margin-bottom:10px;';
     img.onerror = () => {
       result.className = 'img-placeholder';
       result.innerHTML = '<div class="placeholder-icon">❌</div><span>Image failed to load.</span>';
     };
+    img.src = validatedUrl.href;
 
     const badge = document.createElement('div');
     badge.style.cssText = 'font-family:"DM Mono",monospace;font-size:9px;color:var(--text3);text-align:right;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;';
     badge.textContent = `via ${data.source || 'AI'}`;
 
     const dlBtn = document.createElement('button');
-    dlBtn.className   = 'modal-btn';
+    dlBtn.className = 'modal-btn';
     dlBtn.textContent = '⬇️ Download Image';
+    
+    // FIXED: Cross-Origin safe execution fallback loop context mapping logic
     dlBtn.onclick = () => {
-      const a = document.createElement('a');
-      a.href = data.imageUrl; a.download = `nova-ai-${Date.now()}.jpg`; a.click();
+      window.open(validatedUrl.href, '_blank', 'noopener,noreferrer');
     };
 
     result.appendChild(img);
     result.appendChild(badge);
     result.appendChild(dlBtn);
   } catch (err) {
+    clearTimeout(timeoutId);
     result.className = 'img-placeholder';
-    result.innerHTML = `<div class="placeholder-icon">❌</div><span>${err.message}</span>`;
-    showToast('Image failed: ' + err.message);
+    result.style.cssText = ''; 
+    
+    const isTimeout = err.name === 'AbortError';
+    const errMsg = isTimeout ? 'Generation timed out (45s)' : err.message;
+    
+    result.innerHTML = `<div class="placeholder-icon">❌</div><span>${errMsg}</span>`;
+    showToast('Image failed: ' + errMsg);
   }
 }
 
 /* ═══════════════════════════════════════════════════════
-   FILE UPLOAD
+   FILE HANDLERS
 ═══════════════════════════════════════════════════════ */
 let selectedFile = null;
 function handleFileSelect(input) { selectedFile = input.files[0]; }
 function uploadFile() {
   if (!selectedFile) { showToast('Please choose a file first'); return; }
   const icons = {pdf:'📕',txt:'📝',csv:'📊',json:'⚙️',md:'📋',png:'🖼️',jpg:'🖼️',jpeg:'🖼️'};
-  const ext   = selectedFile.name.split('.').pop().toLowerCase();
-  const item  = document.createElement('div');
+  const ext = selectedFile.name.split('.').pop().toLowerCase();
+  const item = document.createElement('div');
   item.className = 'file-item';
+  
+  // FIXED: Explicitly mapped onclick triggers directly onto dynamically appended buttons
   item.innerHTML = `
     <span class="file-item-icon">${icons[ext] || '📄'}</span>
     <span class="file-item-name">${selectedFile.name}</span>
-    <button class="file-item-del" onclick="removeFile(this)" aria-label="Remove">✕</button>`;
+    <button class="file-item-del" onclick="removeFile(this)" aria-label="Remove file">✕</button>`;
   document.getElementById('file-list').appendChild(item);
   document.getElementById('file-input').value = '';
   selectedFile = null;
@@ -1244,15 +1328,15 @@ function uploadFile() {
 function removeFile(btn) { btn.closest('.file-item').remove(); }
 
 /* ═══════════════════════════════════════════════════════
-   VOICE INPUT  (Speech Recognition)
+   VOICE INPUT (SPEECH RECOGNITION)
 ═══════════════════════════════════════════════════════ */
 function initSpeechRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { const m = document.getElementById('mic-btn'); if (m) m.style.display = 'none'; return; }
   recognition = new SR();
-  recognition.continuous     = false;
+  recognition.continuous = false;
   recognition.interimResults = false;
-  recognition.lang           = 'en-US';
+  recognition.lang = 'en-US';
 
   recognition.onresult = e => {
     const transcript = e.results[0][0].transcript;
@@ -1262,8 +1346,16 @@ function initSpeechRecognition() {
     input.focus();
     showToast('🎙️ Tap Send or press Enter to confirm');
   };
-  recognition.onerror = e => { if (e.error !== 'no-speech') showToast('⚠️ Mic error: ' + e.error); resetMicUI(); };
-  recognition.onend   = resetMicUI;
+  
+  recognition.onerror = e => { 
+    if (e.error === 'not-allowed') {
+      showToast('⚠️ Microphone permission denied');
+    } else if (e.error !== 'no-speech') {
+      showToast('⚠️ Mic error: ' + e.error); 
+    }
+    resetMicUI(); 
+  };
+  recognition.onend = resetMicUI;
 }
 
 function toggleVoiceInput() {
@@ -1285,7 +1377,7 @@ function toggleVoiceInput() {
 function resetMicUI() { isListening = false; document.getElementById('mic-btn')?.classList.remove('recording'); }
 
 /* ═══════════════════════════════════════════════════════
-   VOICE OUTPUT  (Speech Synthesis)
+   VOICE OUTPUT (SPEECH SYNTHESIS)
 ═══════════════════════════════════════════════════════ */
 function safariSpeechUnlock() {
   if (isSpeechEnabled && window.speechSynthesis) window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
@@ -1301,9 +1393,9 @@ function speakText(text) {
     .replace(/\n+/g, '. ')
     .trim();
   const utter = new SpeechSynthesisUtterance(clean);
-  utter.lang  = 'en-US'; utter.rate = 1.0; utter.pitch = 1.0;
+  utter.lang = 'en-US'; utter.rate = 1.0; utter.pitch = 1.0;
   const voices = window.speechSynthesis.getVoices();
-  const voice  = voices.find(v => v.lang.startsWith('en') &&
+  const voice = voices.find(v => v.lang.startsWith('en') &&
     (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
   if (voice) utter.voice = voice;
   window.speechSynthesis.speak(utter);
@@ -1324,15 +1416,15 @@ function toggleSpeech() {
 }
 
 /* ═══════════════════════════════════════════════════════
-   TOAST
+   TOAST SYSTEM
 ═══════════════════════════════════════════════════════ */
-let _toastTimer;
+let toastTimer;
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
 }
 </script>
 </body>
