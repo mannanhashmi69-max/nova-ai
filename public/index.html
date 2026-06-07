@@ -921,10 +921,15 @@ function setupEventDelegation() {
     }
   });
 
-  // FIX: file list delete — delegated from the stable container
+  // File list delete — also removes content from uploadedFileContents
   document.getElementById('file-list').addEventListener('click', e => {
     const delBtn = e.target.closest('.file-item-del');
-    if (delBtn) delBtn.closest('.file-item').remove();
+    if (delBtn) {
+      const item = delBtn.closest('.file-item');
+      const fname = item.dataset.filename;
+      if (fname) uploadedFileContents = uploadedFileContents.filter(f => f.name !== fname);
+      item.remove();
+    }
   });
 
   // Welcome chips
@@ -1033,10 +1038,19 @@ async function sendMessage() {
   let fullReply = '';
 
   try {
+    // Attach any uploaded file contents as context
+    let messageWithFiles = message;
+    if (uploadedFileContents.length > 0) {
+      const fileContext = uploadedFileContents.map(f =>
+        `--- File: ${f.name} ---\n${f.content}\n---`
+      ).join('\n\n');
+      messageWithFiles = `${message}\n\n[Attached files for context:]\n${fileContext}`;
+    }
+
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history: msgHistory }),
+      body: JSON.stringify({ message: messageWithFiles, history: msgHistory }),
       signal: currentController.signal
     });
     if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -1375,12 +1389,12 @@ async function generateImage() {
 
 /* ═══════════════════════════════════════════════════════
    FILE HANDLERS
-   FIX: delete is now delegated from #file-list (set up in
-        setupEventDelegation), so onclick="" on dynamic HTML
-        is not needed and avoids any CSP issues.
+   Files are read as text and stored in uploadedFileContents
+   so sendMessage() can attach them to the AI context.
 ═══════════════════════════════════════════════════════ */
 const FILE_ICONS = { pdf:'📕', txt:'📝', csv:'📊', json:'⚙️', md:'📋', png:'🖼️', jpg:'🖼️', jpeg:'🖼️' };
 let selectedFile = null;
+let uploadedFileContents = []; // { name, content }
 
 function handleFileSelect(input) {
   selectedFile = input.files[0] || null;
@@ -1391,10 +1405,20 @@ function uploadFile() {
   const ext  = selectedFile.name.split('.').pop().toLowerCase();
   const icon = FILE_ICONS[ext] || '📄';
   const safeName = escapeHtml(selectedFile.name);
+  const fileRef  = selectedFile;
+
+  const isText = ['txt','md','csv','json','js','ts','html','css','py','java','c','cpp','xml','yaml','yml'].includes(ext);
+  if (isText) {
+    const fr = new FileReader();
+    fr.onload = (e) => {
+      uploadedFileContents.push({ name: fileRef.name, content: e.target.result.slice(0, 8000) });
+    };
+    fr.readAsText(fileRef);
+  }
 
   const item = document.createElement('div');
   item.className = 'file-item';
-  // FIX: no inline onclick — delete is handled by delegated listener on #file-list
+  item.dataset.filename = fileRef.name;
   item.innerHTML = `
     <span class="file-item-icon">${icon}</span>
     <span class="file-item-name" title="${safeName}">${safeName}</span>
@@ -1403,7 +1427,7 @@ function uploadFile() {
   document.getElementById('file-list').appendChild(item);
   document.getElementById('file-input').value = '';
   selectedFile = null;
-  showToast('✅ File added: ' + selectedFile?.name || '');
+  showToast('✅ File added: ' + fileRef.name + (isText ? ' — AI will read this' : ''));
 }
 
 /* ═══════════════════════════════════════════════════════
