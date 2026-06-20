@@ -1,453 +1,317 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-import fetch from 'node-fetch';
+const express = require('express');
+const cors    = require('cors');
+const path    = require('path');
+const https   = require('https');
+const dns     = require('dns');
 
-dotenv.config();
+dns.setDefaultResultOrder('ipv4first');
+
+const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const app = express();
-const PORT = process.env.PORT || 8000;
-
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static('public'));
 
-// ====== DATABASE ======
-const db = {
-  users: {},
-  conversations: {},
-  messages: {},
-  tasks: {},
-  agents: {}
+const ENV = {
+  GROQ_KEY:   (process.env.GROQ_API_KEY   || '').trim(),
+  GEMINI_KEY: (process.env.GEMINI_API_KEY || '').trim(),
 };
 
-// ====== ROOT ROUTE ======
-app.get('/', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'Nova AI - Enhanced with 5-Agent System',
-    version: '2.0.0',
-    features: [
-      'Chat interface',
-      '5-agent orchestration',
-      'Task processing',
-      'Real-time results'
-    ]
-  });
-});
-
-// ====== AUTHENTICATION ======
-const authenticate = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token' });
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-    req.userId = decoded.userId;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// ====== AGENTS ======
-
-class RouterAgent {
-  async process(prompt) {
-    return {
-      agent: 'Router',
-    targetAgent: 'Processor',
-      confidence: 0.95
-    };
-  }
-}
-
-class ProcessorAgent {
-  async process(prompt) {
-    const responses = {
-      'generate': 'I have generated comprehensive content based on your requirements. This includes detailed information with multiple angles and perspectives.',
-      'analyze': 'Analysis complete: I identified key patterns, trends, and insights from the provided information.',
-      'summarize': 'Summary: The main points are consolidated here with all essential information preserved.',
-      'explain': 'Explanation: Here is a clear breakdown of the concept with examples and details.',
-      'write': 'I have written fresh, original content tailored to your specifications.',
-      'default': 'Your request has been processed successfully with detailed results.'
-    };
-
-    for (const [key, response] of Object.entries(responses)) {
-      if (prompt.toLowerCase().includes(key)) {
-        return {
-          agent: 'Processor',
-          result: response,
-          confidence: 0.92
-        };
-      }
-    }
-
-    return {
-      agent: 'Processor',
-      result: responses.default,
-      confidence: 0.88
-    };
-  }
-}
-
-class ValidatorAgent {
-  async process(result) {
-    const checks = [
-      { name: 'completeness', passed: result.length > 20 },
-      { name: 'quality', passed: !result.includes('undefined') }
-    ];
-
-    const score = (checks.filter(c => c.passed).length / checks.length) * 100;
-
-    return {
-      agent: 'Validator',
-      isValid: score >= 70,
-      score,
-      checks
-    };
-  }
-}
-
-class OptimizerAgent {
-  async process(result, isValid) {
-    if (!isValid) {
-      return {
-        agent: 'Optimizer',
-        result: result + '\n\n[Optimized with enhanced clarity and structure]',
-        improvement: 15
-      };
-    }
-    return {
-      agent: 'Optimizer',
-      result: result,
-      improvement: 0
-    };
-  }
-}
-
-class ExecutorAgent {
-  async process(result, format) {
-    const formatters = {
-      text: (r) => r,
-      json: (r) => JSON.stringify({ content: r }, null, 2),
-      markdown: (r) => `# Result\n\n${r}`,
-      html: (r) => `<div style="padding: 20px;"><h2>Result</h2><p>${r}</p></div>`
-    };
-
-    const formatter = formatters[format] || formatters.text;
-
-    return {
-      agent: 'Executor',
-      result: formatter(result),
-      format
-    };
-  }
-}
-
-// ====== WORKFLOW ENGINE ======
-
-class WorkflowEngine {
-  constructor(prompt, format) {
-    this.prompt = prompt;
-    this.format = format;
-    this.agents = [
-      new RouterAgent(),
-      new ProcessorAgent(),
-      new ValidatorAgent(),
-      new OptimizerAgent(),
-      new ExecutorAgent()
-    ];
-  }
-
-  async execute() {
-    const startTime = Date.now();
-
-    try {
-      // Stage 1: Router
-      const routeResult = await this.agents[0].process(this.prompt);
-      
-      // Stage 2: Processor
-      const processResult = await this.agents[1].process(this.prompt);
-      
-      // Stage 3: Validator
-      const validateResult = await this.agents[2].process(processResult.result);
-      
-      // Stage 4: Optimizer
-      const optimizeResult = await this.agents[3].process(processResult.result, validateResult.isValid);
-      
-      // Stage 5: Executor
-      const executeResult = await this.agents[4].process(optimizeResult.result, this.format);
-
-      return {
-        success: true,
-        result: executeResult.result,
-        stages: {
-          router: routeResult,
-          processor: processResult,
-          validator: validateResult,
-          optimizer: optimizeResult,
-          executor: executeResult
-        },
-        executionTime: Date.now() - startTime,
-        score: validateResult.score
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        executionTime: Date.now() - startTime
-      };
-    }
-  }
-}
-
-// ====== INITIALIZE AGENTS ======
-
-const initializeAgents = () => {
-  const agents = [
-    { id: uuidv4(), name: 'Router', role: 'Routes tasks', cost: 0.01 },
-    { id: uuidv4(), name: 'Processor', role: 'AI reasoning', cost: 0.05 },
-    { id: uuidv4(), name: 'Validator', role: 'Quality checks', cost: 0.02 },
-    { id: uuidv4(), name: 'Optimizer', role: 'Improves results', cost: 0.03 },
-    { id: uuidv4(), name: 'Executor', role: 'Final execution', cost: 0.04 }
+(function validateEnv() {
+  const checks = [
+    { val: ENV.GROQ_KEY,   prefix: 'gsk_',   label: 'Groq',   key: 'GROQ_API_KEY'   },
+    { val: ENV.GEMINI_KEY, prefix: 'AIzaSy', label: 'Gemini', key: 'GEMINI_API_KEY' },
   ];
-
-  agents.forEach(agent => {
-    db.agents[agent.id] = agent;
-  });
-
-  return agents;
-};
-
-// ====== CHAT ROUTES (ORIGINAL) ======
-
-app.post('/api/chat/register', (req, res) => {
-  const { email, password } = req.body;
-
-  if (db.users[email]) {
-    return res.status(400).json({ error: 'User exists' });
+  for (const { val, prefix, label, key } of checks) {
+    if (!val)                         console.warn (`⚠️  ${key} not set — ${label} disabled`);
+    else if (!val.startsWith(prefix)) console.error(`❌  ${key} looks wrong — expected prefix "${prefix}"`);
+    else                              console.log  (`✅  ${key} loaded (${label})`);
   }
+  console.log('✅  Image: Pollinations flux-schnell → flux → picsum fallback');
+})();
 
-  const userId = uuidv4();
-  db.users[email] = {
-    id: userId,
-    email,
-    password,
-    createdAt: new Date()
-  };
+const ipv4Agent = new https.Agent({ family: 4 });
 
-  const token = jwt.sign({ userId, email }, process.env.JWT_SECRET || 'secret', {
-    expiresIn: '7d'
-  });
+function fetchWithTimeout(url, options, ms) {
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
 
-  res.status(201).json({
-    success: true,
-    userId,
-    token,
-    email
-  });
-});
-
-app.post('/api/chat/login', (req, res) => {
-  const { email, password } = req.body;
-
-  const user = db.users[email];
-
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+class RateLimitError extends Error {
+  constructor(provider) {
+    super(`${provider} rate limit reached`);
+    this.name     = 'RateLimitError';
+    this.provider = provider;
   }
+}
 
-  const token = jwt.sign({ userId: user.id, email }, process.env.JWT_SECRET || 'secret', {
-    expiresIn: '7d'
-  });
+async function safeJson(res) {
+  const text = await res.text();
+  try   { return JSON.parse(text); }
+  catch { throw new Error(`Non-JSON response: ${text.slice(0, 120)}`); }
+}
 
-  res.json({
-    success: true,
-    userId: user.id,
-    token,
-    email
-  });
-});
-
-app.post('/api/chat/new-conversation', authenticate, (req, res) => {
-  const conversationId = uuidv4();
-  const { title } = req.body;
-
-  db.conversations[conversationId] = {
-    id: conversationId,
-    userId: req.userId,
-    title: title || 'New Conversation',
-    createdAt: new Date(),
-    messages: []
-  };
-
-  res.status(201).json({
-    conversationId,
-    title: db.conversations[conversationId].title
-  });
-});
-
-app.get('/api/chat/conversations', authenticate, (req, res) => {
-  const conversations = Object.values(db.conversations)
-    .filter(c => c.userId === req.userId)
-    .map(c => ({
-      id: c.id,
-      title: c.title,
-      createdAt: c.createdAt
-    }));
-
-  res.json({ conversations });
-});
-
-app.post('/api/chat/send', authenticate, (req, res) => {
-  const { conversationId, message } = req.body;
-
-  const conversation = db.conversations[conversationId];
-  if (!conversation || conversation.userId !== req.userId) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  const messageId = uuidv4();
-  const userMessage = {
-    id: messageId,
-    role: 'user',
-    content: message,
-    timestamp: new Date()
-  };
-
-  conversation.messages.push(userMessage);
-
-  const responseId = uuidv4();
-  const aiResponse = {
-    id: responseId,
-    role: 'assistant',
-    content: `I received your message: "${message}". This is a response from Nova AI Enhanced.`,
-    timestamp: new Date()
-  };
-
-  conversation.messages.push(aiResponse);
-
-  res.json({
-    success: true,
-    messageId,
-    response: aiResponse
-  });
-});
-
-// ====== NEW: 5-AGENT TASK ROUTES ======
-
-app.post('/api/tasks/submit', authenticate, async (req, res) => {
-  const { prompt, format } = req.body;
-
-  if (!prompt) {
-    return res.status(400).json({ error: 'Prompt required' });
-  }
-
-  const taskId = uuidv4();
-
-  db.tasks[taskId] = {
-    id: taskId,
-    userId: req.userId,
-    prompt,
-    format: format || 'text',
-    status: 'processing',
-    createdAt: new Date()
-  };
-
-  // Execute workflow asynchronously
-  (async () => {
-    const engine = new WorkflowEngine(prompt, format || 'text');
-    const result = await engine.execute();
-
-    db.tasks[taskId] = {
-      ...db.tasks[taskId],
-      status: result.success ? 'completed' : 'failed',
-      result: result.result,
-      stages: result.stages,
-      executionTime: result.executionTime,
-      score: result.score,
-      completedAt: new Date()
-    };
-  })();
-
-  res.status(202).json({
-    success: true,
-    taskId,
-    status: 'processing'
-  });
-});
-
-app.get('/api/tasks', authenticate, (req, res) => {
-  const userTasks = Object.values(db.tasks)
-    .filter(t => t.userId === req.userId)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-  res.json({ tasks: userTasks });
-});
-
-app.get('/api/tasks/:taskId', authenticate, (req, res) => {
-  const task = db.tasks[req.params.taskId];
-
-  if (!task || task.userId !== req.userId) {
-    return res.status(404).json({ error: 'Task not found' });
-  }
-
-  res.json({ task });
-});
-
-app.get('/api/agents', (req, res) => {
-  const agents = Object.values(db.agents);
-  res.json({
-    total: agents.length,
-    agents
-  });
-});
-
+// ─── Health ────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
-    status: 'healthy',
-    agents: Object.keys(db.agents).length,
-    tasks: Object.keys(db.tasks).length,
-    users: Object.keys(db.users).length
+    status:    'healthy',
+    providers: { groq: !!ENV.GROQ_KEY, gemini: !!ENV.GEMINI_KEY, pollinations: true },
+    timestamp: new Date().toISOString()
   });
 });
 
-// ====== ERROR HANDLING ======
-
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal error' });
+// ─── Guest login ───────────────────────────────────────────
+app.post('/api/guest', (req, res) => {
+  const token = `guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  res.json({ success: true, token, username: 'Guest' });
 });
 
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
+// ─── Image generation ──────────────────────────────────────
+// Strategy:
+//   1. Pollinations flux-schnell  (fast model, ~5s)
+//   2. Pollinations flux          (standard model, ~15s)
+//   3. Pollinations default       (bare endpoint fallback)
+//   4. picsum.photos              (always works — random photo, never fails)
+//
+// Key fixes vs old version:
+//   - flux-schnell first (5x faster than flux)
+//   - Per-attempt AbortController so one slow attempt doesn't block next
+//   - Buffer fully read before checking content-type (Railway streaming quirk)
+//   - Picsum guaranteed fallback so users NEVER see a blank error
 
-// ====== START SERVER ======
+app.post('/api/image', async (req, res) => {
+  const { prompt, size = '512' } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ error: 'Prompt is required' });
+  }
 
-const startServer = () => {
-  initializeAgents();
+  const seed = Math.floor(Math.random() * 999999);
+  const enc  = encodeURIComponent(prompt.slice(0, 500));
+  const sz   = parseInt(size, 10) || 512;
 
-  app.listen(PORT, () => {
-    console.log(`
-╔═════════════════════════════════════════╗
-║  Nova AI Enhanced - 5-Agent System      ║
-║  Port: ${PORT}                            ║
-║  Status: ✅ RUNNING                     ║
-╚═════════════════════════════════════════╝
+  // Attempt each Pollinations variant with individual timeouts
+  const pollinationsAttempts = [
+    { url: `https://image.pollinations.ai/prompt/${enc}?width=${sz}&height=${sz}&model=flux-schnell&nologo=true&seed=${seed}`, label: 'flux-schnell', timeout: 25000 },
+    { url: `https://image.pollinations.ai/prompt/${enc}?width=${sz}&height=${sz}&model=flux&nologo=true&seed=${seed}`,         label: 'flux',         timeout: 45000 },
+    { url: `https://image.pollinations.ai/prompt/${enc}?width=${sz}&height=${sz}&nologo=true&seed=${seed}`,                   label: 'default',      timeout: 45000 },
+  ];
 
-✅ Chat interface (original)
-✅ 5-agent task system (new)
-✅ ${Object.keys(db.agents).length} agents ready
-✅ Free unlimited tasks
-    `);
+  for (const attempt of pollinationsAttempts) {
+    try {
+      console.log(`🎨 Trying Pollinations ${attempt.label}…`);
+      const response = await fetchWithTimeout(
+        attempt.url,
+        { agent: ipv4Agent, headers: { 'Accept': 'image/*' } },
+        attempt.timeout
+      );
+
+      if (!response.ok) {
+        console.warn(`   ✗ HTTP ${response.status}`);
+        continue;
+      }
+
+      const ct = response.headers.get('content-type') || '';
+      if (!ct.startsWith('image/')) {
+        console.warn(`   ✗ Wrong content-type: ${ct}`);
+        continue;
+      }
+
+      // Read full buffer — Railway can close stream early if we peek headers only
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length < 1000) {
+        console.warn(`   ✗ Buffer too small (${buffer.length} bytes) — likely an error page`);
+        continue;
+      }
+
+      const ext = ct.includes('png') ? 'png' : 'jpeg';
+      console.log(`✅ Pollinations ${attempt.label} succeeded (${buffer.length} bytes)`);
+      return res.json({
+        imageUrl: `data:image/${ext};base64,${buffer.toString('base64')}`,
+        source:   `pollinations-${attempt.label}`
+      });
+    } catch (err) {
+      console.warn(`   ✗ Pollinations ${attempt.label} error: ${err.message}`);
+    }
+  }
+
+  // ── Guaranteed fallback: picsum.photos ────────────────────
+  // Always returns a real photo. Not AI-generated but ALWAYS works.
+  // Better than showing the user an error.
+  console.log('⚠️  All Pollinations attempts failed — using picsum fallback');
+  try {
+    const picsumUrl = `https://picsum.photos/seed/${seed}/${sz}/${sz}`;
+    const picsumRes = await fetchWithTimeout(picsumUrl, { agent: ipv4Agent }, 10000);
+    if (picsumRes.ok) {
+      const buf = Buffer.from(await picsumRes.arrayBuffer());
+      console.log('✅ Picsum fallback succeeded');
+      return res.json({
+        imageUrl: `data:image/jpeg;base64,${buf.toString('base64')}`,
+        source:   'picsum',
+        note:     '⚠️ AI generation is slow right now — showing a stock photo instead. Try again in a minute for AI art.'
+      });
+    }
+  } catch (err) {
+    console.warn(`   ✗ Picsum fallback error: ${err.message}`);
+  }
+
+  return res.status(503).json({
+    error: '🖼️ Image generation is temporarily unavailable on this server. Please try again in 1–2 minutes.'
   });
-};
+});
 
-startServer();
+// ─── Video (disabled) ──────────────────────────────────────
+app.post('/api/generate-video', (_req, res) => res.status(503).json({
+  error: '🎬 Video generation requires a paid API. Use the Image tab for free AI visuals.'
+}));
+app.get('/api/video-status/:jobId', (_req, res) => res.status(410).json({ error: 'Disabled.' }));
 
-export default app;
+// ─── Chat providers ────────────────────────────────────────
+function fixGeminiHistory(historyOnly) {
+  const turns  = [];
+  let lastRole = null;
+  for (const msg of historyOnly) {
+    const role = msg.role === 'assistant' ? 'model' : 'user';
+    if (role === lastRole) {
+      turns[turns.length - 1].parts[0].text += '\n' + msg.content;
+    } else {
+      turns.push({ role, parts: [{ text: msg.content }] });
+      lastRole = role;
+    }
+  }
+  return turns;
+}
+
+const providerCooldowns = new Map();
+
+const AI_PROVIDERS = [
+  {
+    name:      'Groq',
+    available: () => !!ENV.GROQ_KEY,
+    call:      async (messages) => {
+      const res = await fetchWithTimeout(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ENV.GROQ_KEY}` },
+          body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages, max_tokens: 2048, temperature: 0.7 })
+        },
+        20000
+      );
+      if (res.status === 429) throw new RateLimitError('Groq');
+      if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 100)}`);
+      const data = await safeJson(res);
+      return data.choices[0].message.content.trim();
+    }
+  },
+  {
+    name:      'Gemini',
+    available: () => !!ENV.GEMINI_KEY,
+    call:      async (messages) => {
+      const systemMsg  = messages.find(m => m.role === 'system')?.content || '';
+      const fixedTurns = fixGeminiHistory(messages.filter(m => m.role !== 'system').slice(0, -1));
+      const lastMsg    = messages[messages.length - 1];
+      fixedTurns.push({ role: 'user', parts: [{ text: lastMsg.content }] });
+      const body = { contents: fixedTurns, generationConfig: { maxOutputTokens: 2048, temperature: 0.7 } };
+      if (systemMsg.trim()) body.system_instruction = { parts: [{ text: systemMsg }] };
+      const res = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${ENV.GEMINI_KEY}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        20000
+      );
+      if (res.status === 429) throw new RateLimitError('Gemini');
+      if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 100)}`);
+      const data = await safeJson(res);
+      return data.candidates[0].content.parts[0].text.trim();
+    }
+  },
+  {
+    name:      'Pollinations',
+    available: () => true,
+    call:      async (messages) => {
+      const res = await fetchWithTimeout(
+        'https://text.pollinations.ai/openai',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'openai', messages }) },
+        25000
+      );
+      if (res.status === 429) throw new RateLimitError('Pollinations');
+      if (!res.ok) throw new Error(`Pollinations ${res.status}`);
+      const data = await safeJson(res);
+      return data.choices[0].message.content.trim();
+    }
+  }
+];
+
+async function getAIReply(messages) {
+  const now       = Date.now();
+  const providers = AI_PROVIDERS.filter(p => {
+    if (!p.available()) return false;
+    const cooldown = providerCooldowns.get(p.name);
+    if (cooldown && now < cooldown) { console.log(`⏸ ${p.name} in cooldown`); return false; }
+    return true;
+  });
+  if (providers.length === 0) throw new Error('All AI providers unavailable or in cooldown');
+  let lastError = null;
+  for (const provider of providers) {
+    try {
+      console.log(`Trying ${provider.name}…`);
+      const reply = await provider.call(messages);
+      console.log(`✅ ${provider.name} succeeded`);
+      providerCooldowns.delete(provider.name);
+      return { reply, provider: provider.name };
+    } catch (err) {
+      console.warn(`⚠️ ${provider.name} failed: ${err.message}`);
+      if (err instanceof RateLimitError) providerCooldowns.set(provider.name, Date.now() + 60_000);
+      lastError = err;
+    }
+  }
+  throw new Error('All providers failed. Last error: ' + lastError?.message);
+}
+
+// ─── Chat endpoint ─────────────────────────────────────────
+app.post('/api/chat', async (req, res) => {
+  res.setHeader('Content-Type',  'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection',    'keep-alive');
+  res.flushHeaders();
+
+  const sendError = (msg) => { res.write(`data: ${JSON.stringify({ error: msg })}\n\n`); res.end(); };
+
+  try {
+    const userMessage = req.body.message;
+    const history     = req.body.history || [];
+    if (!userMessage || typeof userMessage !== 'string') return sendError('Message is required');
+    if (userMessage.length > 12000) return sendError('Message too long (max 12000 chars)');
+
+    const messages = [
+      { role: 'system', content: 'You are Nova AI, a futuristic, intelligent, and helpful AI assistant. Be concise, friendly, and insightful. When the user sends file contents, read them carefully and answer based on that content. Refuse harmful or illegal requests politely.' },
+      ...history.slice(-10),
+      { role: 'user', content: userMessage }
+    ];
+
+    const { reply, provider } = await getAIReply(messages);
+
+    const words = reply.split(' ');
+    const CHUNK_SIZE = 8;
+    for (let i = 0; i < words.length; i += CHUNK_SIZE) {
+      const chunk = words.slice(i, i + CHUNK_SIZE).join(' ') + ' ';
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+      await new Promise(r => setTimeout(r, 30));
+    }
+    res.write(`data: ${JSON.stringify({ done: true, provider })}\n\n`);
+    res.end();
+  } catch (err) {
+    console.error('Chat failed:', err.message);
+    sendError('Nova AI is temporarily busy. Please try again in a moment.');
+  }
+});
+
+// ─── Catch-all ─────────────────────────────────────────────
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`✅ Nova AI running on port ${PORT}`));
