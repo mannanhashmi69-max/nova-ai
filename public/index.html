@@ -670,9 +670,68 @@ body {
   .login-card { padding:30px 20px; }
   .welcome-sub { font-size:13px; }
 }
+
+/* ═══════════════════════════════════
+   ICONS — SVG sprite system
+   FIX: replaces emoji with clean line icons.
+   currentColor means icons auto-match each
+   button's existing color/hover CSS — no
+   per-icon color rules needed.
+═══════════════════════════════════ */
+.icon {
+  fill:none; stroke:currentColor;
+  stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
+  display:inline-block; vertical-align:middle; flex-shrink:0;
+}
+.icon-solid { fill:currentColor; stroke:none; }
+.spin { animation:icon-spin 0.9s linear infinite; transform-origin:center; }
+@keyframes icon-spin { to { transform:rotate(360deg); } }
+
+.guest-btn { display:flex; align-items:center; justify-content:center; gap:8px; }
+.modal-title { display:flex; align-items:center; gap:8px; }
+.modal-btn { display:flex; align-items:center; justify-content:center; gap:8px; }
+.topbar-title { display:flex; align-items:center; gap:6px; }
+.login-logo {
+  display:flex; align-items:center; justify-content:center;
+  width:60px; height:60px; margin:0 auto 16px; border-radius:16px;
+  background:linear-gradient(135deg,var(--p1),var(--b1));
+  box-shadow:0 0 30px var(--glow);
+}
+.img-placeholder .placeholder-icon svg { opacity:0.6; }
 </style>
 </head>
 <body>
+
+<!-- FIX: hidden SVG sprite — all icons reference these via <use>, colored by currentColor -->
+<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false">
+<defs>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+<symbol id="i-message" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="3"/><path d="M8 18l-3 3v-3"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 16l-5-5L5 21"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="12" width="3" height="8"/><rect x="11" y="8" width="3" height="12"/><rect x="16" y="4" width="3" height="16"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="11"/><path d="M7 6a8 8 0 1 0 10 0"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></symbol>
+<symbol id="i-volume" viewBox="0 0 24 24"><polygon points="4,9 9,9 14,4 14,20 9,15 4,15"/><path d="M18 8a6 6 0 0 1 0 8"/><path d="M20.5 5.5a10 10 0 0 1 0 13"/></symbol>
+<symbol id="i-volume-x" viewBox="0 0 24 24"><polygon points="4,9 9,9 14,4 14,20 9,15 4,15"/><line x1="18" y1="9" x2="23" y2="15"/><line x1="23" y1="9" x2="18" y2="15"/></symbol>
+<symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M21.4 11.05l-9.2 9.19a6 6 0 0 1-8.48-8.49l9.18-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.48-8.48"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></symbol>
+<symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16,8 14,14 8,16 10,10"/></symbol>
+<symbol id="i-rocket" viewBox="0 0 24 24"><path d="M12 2c2.5 2 4 5.5 4 9 0 2-1 4-2 5l-2 2-2-2c-1-1-2-3-2-5 0-3.5 1.5-7 4-9z"/><circle cx="12" cy="9" r="1.5"/><path d="M9 16l-3 3 1.6.5L9 16z"/><path d="M15 16l3 3-1.6.5L15 16z"/></symbol>
+<symbol id="i-wand" viewBox="0 0 24 24"><path d="M4 20L16 8"/><path d="M14 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/><line x1="19" y1="13" x2="19" y2="17"/><line x1="17" y1="15" x2="21" y2="15"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4"/><polyline points="7,9 12,4 17,9"/><path d="M5 20h14"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12"/><polyline points="7,11 12,16 17,11"/><path d="M5 20h14"/></symbol>
+<symbol id="i-loader" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><circle class="icon-solid" cx="12" cy="16.3" r="0.6"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></symbol>
+</defs>
+</svg>
 
 <div class="bg-canvas"></div>
 <div class="grid-overlay"></div>
@@ -685,29 +744,29 @@ body {
 
   <aside id="sidebar">
     <div class="sidebar-logo">
-      <div class="logo-icon">✦</div>
+      <div class="logo-icon"><svg class="icon icon-solid" width="18" height="18" style="color:#fff"><use href="#i-sparkle"/></svg></div>
       <span class="logo-text">Nova AI</span>
       <span class="logo-badge">BETA</span>
     </div>
     <button class="new-chat-btn" onclick="newChat()">
-      <span>＋</span><span>New conversation</span>
+      <svg class="icon" width="15" height="15"><use href="#i-plus"/></svg><span>New conversation</span>
     </button>
     <div class="section-label">Recent</div>
     <div class="conv-list" id="conv-list">
       <div class="conv-item active">
-        <span class="conv-icon">💬</span>
+        <span class="conv-icon"><svg class="icon" width="14" height="14"><use href="#i-message"/></svg></span>
         <span class="conv-title">How to code in Python</span>
-        <button class="conv-del" title="Delete" aria-label="Delete conversation">✕</button>
+        <button class="conv-del" title="Delete" aria-label="Delete conversation"><svg class="icon" width="11" height="11"><use href="#i-x"/></svg></button>
       </div>
       <div class="conv-item">
-        <span class="conv-icon">🎨</span>
+        <span class="conv-icon"><svg class="icon" width="14" height="14"><use href="#i-image"/></svg></span>
         <span class="conv-title">Image generation ideas</span>
-        <button class="conv-del" title="Delete" aria-label="Delete conversation">✕</button>
+        <button class="conv-del" title="Delete" aria-label="Delete conversation"><svg class="icon" width="11" height="11"><use href="#i-x"/></svg></button>
       </div>
       <div class="conv-item">
-        <span class="conv-icon">📈</span>
+        <span class="conv-icon"><svg class="icon" width="14" height="14"><use href="#i-chart"/></svg></span>
         <span class="conv-title">Marketing tips for SaaS</span>
-        <button class="conv-del" title="Delete" aria-label="Delete conversation">✕</button>
+        <button class="conv-del" title="Delete" aria-label="Delete conversation"><svg class="icon" width="11" height="11"><use href="#i-x"/></svg></button>
       </div>
     </div>
     <div class="sidebar-footer">
@@ -717,7 +776,7 @@ body {
           <div class="user-name" id="user-display-name">Guest</div>
           <div class="user-plan">Free Plan</div>
         </div>
-        <button class="logout-btn" onclick="logout()" title="Log out">⏻</button>
+        <button class="logout-btn" onclick="logout()" title="Log out"><svg class="icon" width="16" height="16"><use href="#i-power"/></svg></button>
       </div>
     </div>
   </aside>
@@ -725,17 +784,17 @@ body {
   <main id="main">
 
     <header id="topbar">
-      <button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle sidebar">☰</button>
-      <div class="topbar-title">✦ <span>Nova AI</span></div>
+      <button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle sidebar"><svg class="icon" width="20" height="20"><use href="#i-menu"/></svg></button>
+      <div class="topbar-title"><svg class="icon icon-solid" width="15" height="15" style="color:var(--p1)"><use href="#i-sparkle"/></svg><span>Nova AI</span></div>
       <div class="topbar-actions">
         <button id="speaker-btn" class="action-btn" onclick="toggleSpeech()" title="Toggle voice output">
-          🔊 <span class="btn-label">Speak OFF</span>
+          <svg class="icon" width="15" height="15"><use id="speaker-icon-use" href="#i-volume-x"/></svg> <span class="btn-label">Speak OFF</span>
         </button>
         <button class="action-btn" onclick="openModal('image-modal')">
-          🎨 <span class="btn-label">Generate Image</span>
+          <svg class="icon" width="15" height="15"><use href="#i-image"/></svg> <span class="btn-label">Generate Image</span>
         </button>
         <button class="action-btn" onclick="openModal('file-modal')">
-          📎 <span class="btn-label">Upload File</span>
+          <svg class="icon" width="15" height="15"><use href="#i-paperclip"/></svg> <span class="btn-label">Upload File</span>
         </button>
       </div>
     </header>
@@ -744,7 +803,7 @@ body {
 
     <div id="typing-wrap">
       <div id="typing-indicator">
-        <div class="typing-avatar">✦</div>
+        <div class="typing-avatar"><svg class="icon icon-solid" width="14" height="14" style="color:#fff"><use href="#i-sparkle"/></svg></div>
         <div class="typing-bubble">
           <div class="dot"></div>
           <div class="dot"></div>
@@ -762,8 +821,8 @@ body {
           oninput="autoResize(this)"
           aria-label="Message input"
         ></textarea>
-        <button id="mic-btn" class="mic-btn" onclick="toggleVoiceInput()" title="Voice input" aria-label="Voice input">🎙️</button>
-        <button id="send-btn" onclick="sendMessage()" title="Send (Enter)" aria-label="Send message">➤</button>
+        <button id="mic-btn" class="mic-btn" onclick="toggleVoiceInput()" title="Voice input" aria-label="Voice input"><svg class="icon" width="19" height="19"><use href="#i-mic"/></svg></button>
+        <button id="send-btn" onclick="sendMessage()" title="Send (Enter)" aria-label="Send message"><svg class="icon" width="17" height="17" style="color:#fff"><use href="#i-send"/></svg></button>
       </div>
       <div class="input-footer">Nova AI may make mistakes. Verify important information.</div>
     </div>
@@ -773,11 +832,11 @@ body {
 
 <div id="login-overlay">
   <div class="login-card">
-    <span class="login-logo">✦</span>
+    <span class="login-logo"><svg class="icon icon-solid" width="28" height="28" style="color:#fff"><use href="#i-sparkle"/></svg></span>
     <div class="login-title">Welcome to Nova AI</div>
     <div class="login-sub">Your futuristic AI assistant.<br>Chat, create, and explore.</div>
     <button class="guest-btn" onclick="guestLogin()">
-      <span>🚀 Continue as Guest</span>
+      <svg class="icon" width="17" height="17"><use href="#i-rocket"/></svg><span>Continue as Guest</span>
     </button>
     <div class="login-divider">MORE OPTIONS COMING SOON</div>
     <div class="login-note">Google login &amp; accounts arriving in next update</div>
@@ -787,8 +846,8 @@ body {
 <div class="modal-overlay" id="image-modal">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">🎨 Generate Image</div>
-      <button class="modal-close" onclick="closeModal('image-modal')" aria-label="Close">✕</button>
+      <div class="modal-title"><svg class="icon" width="18" height="18" style="color:var(--p1)"><use href="#i-image"/></svg>Generate Image</div>
+      <button class="modal-close" onclick="closeModal('image-modal')" aria-label="Close"><svg class="icon" width="16" height="16"><use href="#i-x"/></svg></button>
     </div>
     <label class="modal-label" for="img-prompt">Describe your image</label>
     <textarea class="modal-input" id="img-prompt" rows="3" placeholder="A futuristic city at night with neon lights…"></textarea>
@@ -798,9 +857,9 @@ body {
       <option value="512" selected>512 × 512 — Balanced</option>
       <option value="1024">1024 × 1024 — High Quality</option>
     </select>
-    <button class="modal-btn" id="img-gen-btn" onclick="generateImage()">✦ Generate Image</button>
+    <button class="modal-btn" id="img-gen-btn" onclick="generateImage()"><svg class="icon" width="16" height="16"><use href="#i-wand"/></svg>Generate Image</button>
     <div class="img-placeholder" id="img-result">
-      <div class="placeholder-icon">🖼️</div>
+      <div class="placeholder-icon"><svg class="icon" width="36" height="36"><use href="#i-image"/></svg></div>
       <span>Your image will appear here</span>
     </div>
   </div>
@@ -809,14 +868,14 @@ body {
 <div class="modal-overlay" id="file-modal">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">📎 Upload File</div>
-      <button class="modal-close" onclick="closeModal('file-modal')" aria-label="Close">✕</button>
+      <div class="modal-title"><svg class="icon" width="18" height="18" style="color:var(--p1)"><use href="#i-paperclip"/></svg>Upload File</div>
+      <button class="modal-close" onclick="closeModal('file-modal')" aria-label="Close"><svg class="icon" width="16" height="16"><use href="#i-x"/></svg></button>
     </div>
     <label class="modal-label" for="file-input">Choose file</label>
     <input type="file" class="modal-input" id="file-input"
       accept=".txt,.pdf,.csv,.json,.md,.png,.jpg,.jpeg"
       onchange="handleFileSelect(this)" style="cursor:pointer;"/>
-    <button class="modal-btn" onclick="uploadFile()">📤 Upload File</button>
+    <button class="modal-btn" onclick="uploadFile()"><svg class="icon" width="16" height="16"><use href="#i-upload"/></svg>Upload File</button>
     <div class="file-list" id="file-list"></div>
   </div>
 </div>
@@ -880,14 +939,14 @@ window.addEventListener('DOMContentLoaded', () => {
 function buildWelcomeHTML() {
   return `
     <div id="welcome">
-      <div class="welcome-icon">✦</div>
+      <div class="welcome-icon"><svg class="icon icon-solid" width="32" height="32" style="color:#fff"><use href="#i-sparkle"/></svg></div>
       <div class="welcome-title">What can I help<br>you with today?</div>
       <div class="welcome-sub">Ask me anything — from code and writing to analysis and creative ideas.</div>
       <div class="chips">
-        <button class="chip" data-prompt="Brainstorm creative ideas for my project">💡 Brainstorm ideas</button>
-        <button class="chip" data-prompt="Write clean code for me in Python">⌨️ Write code</button>
-        <button class="chip" data-prompt="Help me draft compelling content">✍️ Draft content</button>
-        <button class="chip" data-prompt="Explain a complex concept simply">🔭 Explain a concept</button>
+        <button class="chip" data-prompt="Brainstorm creative ideas for my project"><svg class="icon" width="13" height="13"><use href="#i-bulb"/></svg> Brainstorm ideas</button>
+        <button class="chip" data-prompt="Write clean code for me in Python"><svg class="icon" width="13" height="13"><use href="#i-code"/></svg> Write code</button>
+        <button class="chip" data-prompt="Help me draft compelling content"><svg class="icon" width="13" height="13"><use href="#i-edit"/></svg> Draft content</button>
+        <button class="chip" data-prompt="Explain a complex concept simply"><svg class="icon" width="13" height="13"><use href="#i-compass"/></svg> Explain a concept</button>
       </div>
     </div>`;
 }
@@ -945,7 +1004,7 @@ function setupEventDelegation() {
 async function guestLogin() {
   const btn = document.querySelector('.guest-btn');
   btn.disabled = true;
-  btn.querySelector('span').textContent = '⏳ Connecting…';
+  btn.querySelector('span').textContent = 'Connecting…';
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GUEST_TIMEOUT_MS);
@@ -966,7 +1025,7 @@ async function guestLogin() {
   } catch (err) {
     clearTimeout(timeoutId);
     btn.disabled = false;
-    btn.querySelector('span').textContent = '🚀 Continue as Guest';
+    btn.querySelector('span').textContent = 'Continue as Guest';
     showToast(err.name === 'AbortError' ? '⚠️ Request timed out — retry' : '⚠️ Connection error — retry');
   }
 }
@@ -1119,7 +1178,9 @@ function appendMessage(role, text) {
 
   const av = document.createElement('div');
   av.className = 'msg-avatar';
-  av.textContent = role === 'user' ? '👤' : '✦';
+  av.innerHTML = role === 'user'
+    ? '<svg class="icon" width="14" height="14" style="color:#fff"><use href="#i-user"/></svg>'
+    : '<svg class="icon icon-solid" width="14" height="14" style="color:#fff"><use href="#i-sparkle"/></svg>';
 
   const bub = document.createElement('div');
   bub.className = 'msg-bubble';
@@ -1139,7 +1200,7 @@ function createAssistantBubble(id) {
 
   const av = document.createElement('div');
   av.className = 'msg-avatar';
-  av.textContent = '✦';
+  av.innerHTML = '<svg class="icon icon-solid" width="14" height="14" style="color:#fff"><use href="#i-sparkle"/></svg>';
 
   const bub = document.createElement('div');
   bub.className = 'msg-bubble streaming';
@@ -1304,7 +1365,7 @@ async function generateImage() {
   // Reset & show loading state
   result.className = 'img-placeholder';
   result.style.cssText = '';
-  result.innerHTML = `<div class="placeholder-icon" style="animation:pulse-glow 1s infinite">⏳</div><span>Generating image…</span>`;
+  result.innerHTML = `<div class="placeholder-icon"><svg class="icon spin" width="32" height="32"><use href="#i-loader"/></svg></div><span>Generating image…</span>`;
   genBtn.disabled = true;
 
   const imgController = new AbortController();
@@ -1346,7 +1407,7 @@ async function generateImage() {
     img.style.cssText = 'width:100%;border-radius:var(--r);display:block;margin-bottom:10px;';
     img.onerror = () => {
       result.className = 'img-placeholder';
-      result.innerHTML = '<div class="placeholder-icon">❌</div><span>Image failed to load</span>';
+      result.innerHTML = '<div class="placeholder-icon"><svg class="icon" width="32" height="32"><use href="#i-alert"/></svg></div><span>Image failed to load</span>';
     };
     img.src = safeUrl;
 
@@ -1357,7 +1418,7 @@ async function generateImage() {
     // FIX: data: URLs → anchor download; https: URLs → window.open in new tab
     const dlBtn = document.createElement('button');
     dlBtn.className = 'modal-btn';
-    dlBtn.textContent = '⬇️ Download Image';
+    dlBtn.innerHTML = '<svg class="icon" width="16" height="16"><use href="#i-download"/></svg>Download Image';
     if (isDataUrl) {
       dlBtn.addEventListener('click', () => {
         const a = document.createElement('a');
@@ -1380,7 +1441,7 @@ async function generateImage() {
     const msg = err.name === 'AbortError' ? 'Generation timed out (60s)' : err.message;
     result.className = 'img-placeholder';
     result.style.cssText = '';
-    result.innerHTML = `<div class="placeholder-icon">❌</div><span>${escapeHtml(msg)}</span>`;
+    result.innerHTML = `<div class="placeholder-icon"><svg class="icon" width="32" height="32"><use href="#i-alert"/></svg></div><span>${escapeHtml(msg)}</span>`;
     showToast('Image failed: ' + msg);
   } finally {
     genBtn.disabled = false;
@@ -1392,7 +1453,7 @@ async function generateImage() {
    Files are read as text and stored in uploadedFileContents
    so sendMessage() can attach them to the AI context.
 ═══════════════════════════════════════════════════════ */
-const FILE_ICONS = { pdf:'📕', txt:'📝', csv:'📊', json:'⚙️', md:'📋', png:'🖼️', jpg:'🖼️', jpeg:'🖼️' };
+const FILE_ICONS = { pdf:'file', txt:'file', csv:'chart', json:'file', md:'file', png:'image', jpg:'image', jpeg:'image' };
 let selectedFile = null;
 let uploadedFileContents = []; // { name, content }
 
@@ -1403,7 +1464,7 @@ function handleFileSelect(input) {
 function uploadFile() {
   if (!selectedFile) { showToast('Please choose a file first'); return; }
   const ext  = selectedFile.name.split('.').pop().toLowerCase();
-  const icon = FILE_ICONS[ext] || '📄';
+  const icon = FILE_ICONS[ext] || 'file';
   const safeName = escapeHtml(selectedFile.name);
   const fileRef  = selectedFile;
 
@@ -1420,9 +1481,9 @@ function uploadFile() {
   item.className = 'file-item';
   item.dataset.filename = fileRef.name;
   item.innerHTML = `
-    <span class="file-item-icon">${icon}</span>
+    <span class="file-item-icon"><svg class="icon" width="15" height="15" style="color:var(--p1)"><use href="#i-${icon}"/></svg></span>
     <span class="file-item-name" title="${safeName}">${safeName}</span>
-    <button class="file-item-del" aria-label="Remove file">✕</button>`;
+    <button class="file-item-del" aria-label="Remove file"><svg class="icon" width="12" height="12"><use href="#i-x"/></svg></button>`;
 
   document.getElementById('file-list').appendChild(item);
   document.getElementById('file-input').value = '';
@@ -1518,12 +1579,16 @@ function speakText(text) {
 function toggleSpeech() {
   isSpeechEnabled = !isSpeechEnabled;
   const btn = document.getElementById('speaker-btn');
+  const iconUse = document.getElementById('speaker-icon-use');
+  const label = btn.querySelector('.btn-label');
   if (isSpeechEnabled) {
-    btn.innerHTML = '🔊 <span class="btn-label">Speak ON</span>';
+    iconUse.setAttribute('href', '#i-volume');
+    label.textContent = 'Speak ON';
     showToast('🔊 Voice output enabled');
     safariSpeechUnlock();
   } else {
-    btn.innerHTML = '🔇 <span class="btn-label">Speak OFF</span>';
+    iconUse.setAttribute('href', '#i-volume-x');
+    label.textContent = 'Speak OFF';
     showToast('🔇 Voice output disabled');
     if (window.speechSynthesis) window.speechSynthesis.cancel();
   }
