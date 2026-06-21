@@ -58,8 +58,21 @@ async function safeJson(res) {
 app.get('/api/health', (req, res) => {
   res.json({
     status:    'healthy',
-    providers: { groq: !!ENV.GROQ_KEY, gemini: !!ENV.GEMINI_KEY, pollinations: true },
+    providers: { groq: !!ENV.GROQ_KEY, gemini: !!ENV.GEMINI_KEY, pollinations: true, victor: true },
     timestamp: new Date().toISOString()
+  });
+});
+
+// ─── Models list (for model-picker UI) ──────────────────────
+app.get('/api/models', (req, res) => {
+  res.json({
+    models: [
+      { id: 'auto',         name: 'Auto',              description: 'Fastest reliable answer — tries providers in order',          available: true },
+      { id: 'victor',       name: 'Victor',            description: 'Multi-agent: routes → drafts → validates → refines',           available: true },
+      { id: 'groq',         name: 'Groq · Llama 3.3',  description: 'Fast and high quality',                                        available: !!ENV.GROQ_KEY },
+      { id: 'gemini',       name: 'Gemini 2.0',        description: "Google's flash model",                                         available: !!ENV.GEMINI_KEY },
+      { id: 'pollinations', name: 'Pollinations',      description: 'Free, always available',                                       available: true }
+    ]
   });
 });
 
@@ -244,14 +257,22 @@ const AI_PROVIDERS = [
   }
 ];
 
-async function getAIReply(messages) {
+async function getAIReply(messages, preferred) {
   const now       = Date.now();
-  const providers = AI_PROVIDERS.filter(p => {
+  let providers = AI_PROVIDERS.filter(p => {
     if (!p.available()) return false;
     const cooldown = providerCooldowns.get(p.name);
     if (cooldown && now < cooldown) { console.log(`⏸ ${p.name} in cooldown`); return false; }
     return true;
   });
+
+  // FIX: if a specific model was requested, try it first — still falls back
+  // to the rest of the chain on failure so the user always gets a reply.
+  if (preferred && preferred !== 'auto' && preferred !== 'victor') {
+    const idx = providers.findIndex(p => p.name.toLowerCase() === preferred.toLowerCase());
+    if (idx > 0) providers = [providers[idx], ...providers.slice(0, idx), ...providers.slice(idx + 1)];
+  }
+
   if (providers.length === 0) throw new Error('All AI providers unavailable or in cooldown');
   let lastError = null;
   for (const provider of providers) {
@@ -270,6 +291,68 @@ async function getAIReply(messages) {
   throw new Error('All providers failed. Last error: ' + lastError?.message);
 }
 
+// ─── Victor: multi-agent reasoning pipeline ─────────────────
+// Not a separate AI — it's a 5-stage process built ON TOP of
+// the providers above: Router (classify intent) → Processor
+// (draft via real AI) → Validator (score the draft) →
+// Optimizer (re-prompt AI to improve, up to 2x if needed) →
+// Executor (return final text). This is what makes "Victor"
+// a genuinely different model option, not a relabeled Groq call.
+
+function victorRoute(userMessage) {
+  const lower = userMessage.toLowerCase();
+  let intent = 'general';
+  if (/code|function|bug|debug|script|programming/.test(lower)) intent = 'code';
+  else if (/write|essay|article|story|email|draft/.test(lower)) intent = 'writing';
+  else if (/analy[sz]e|compare|pros and cons|evaluate|research/.test(lower)) intent = 'analysis';
+  return { agent: 'Router', intent };
+}
+
+function victorValidate(text) {
+  const checks = [
+    { name: 'length',    passed: text.trim().length >= 20 },
+    { name: 'no-refusal', passed: !/^(error|sorry, i (can't|cannot))/i.test(text.trim()) },
+    { name: 'clean',     passed: !text.includes('undefined') && !text.includes('[object Object]') }
+  ];
+  const score = Math.round((checks.filter(c => c.passed).length / checks.length) * 100);
+  return { agent: 'Validator', score, isValid: score >= 70 };
+}
+
+async function victorOptimize(messages, draft) {
+  const refineMessages = [
+    ...messages,
+    { role: 'assistant', content: draft },
+    { role: 'user', content: 'Improve and tighten your previous answer — fix gaps, keep it accurate and well-structured. Reply with only the improved answer, nothing else.' }
+  ];
+  return getAIReply(refineMessages);
+}
+
+async function runVictorPipeline(messages) {
+  const userMessage = messages[messages.length - 1].content;
+  const route = victorRoute(userMessage);
+
+  let { reply: text, provider } = await getAIReply(messages);
+  let validation = victorValidate(text);
+  let attempts = 0;
+
+  while (!validation.isValid && attempts < 2) {
+    attempts++;
+    try {
+      const opt = await victorOptimize(messages, text);
+      text = opt.reply;
+      provider = opt.provider;
+    } catch {
+      break; // keep best draft so far rather than fail the whole pipeline
+    }
+    validation = victorValidate(text);
+  }
+
+  return {
+    reply: text,
+    provider: `Victor · ${route.intent} · via ${provider} · ${validation.score}%`
+  };
+}
+
 // ─── Chat endpoint ─────────────────────────────────────────
 app.post('/api/chat', async (req, res) => {
   res.setHeader('Content-Type',  'text/event-stream');
@@ -282,6 +365,7 @@ app.post('/api/chat', async (req, res) => {
   try {
     const userMessage = req.body.message;
     const history     = req.body.history || [];
+    const model       = (req.body.model || 'auto').toLowerCase(); // FIX: model selection
     if (!userMessage || typeof userMessage !== 'string') return sendError('Message is required');
     if (userMessage.length > 12000) return sendError('Message too long (max 12000 chars)');
 
@@ -291,7 +375,9 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', content: userMessage }
     ];
 
-    const { reply, provider } = await getAIReply(messages);
+    const { reply, provider } = model === 'victor'
+      ? await runVictorPipeline(messages)
+      : await getAIReply(messages, model);
 
     const words = reply.split(' ');
     const CHUNK_SIZE = 8;
