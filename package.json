@@ -1,11 +1,46 @@
 {
   "name": "nova-ai",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "Nova AI — Professional AI Assistant Platform with Multi-Agent System, Google OAuth, and Advanced Features",
+  "author": "Mannan Hashmi",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
   "main": "src/index.js",
-  "scripts": { "start": "node src/index.js" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "NODE_ENV=development node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "chatbot",
+    "multi-agent",
+    "groq",
+    "gemini",
+    "google-oauth",
+    "express",
+    "nodejs"
+  ],
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "node-fetch": "^3.3.2"
-  }
+    "node-fetch": "^3.3.2",
+    "express-rate-limit": "^7.4.0",
+    "express-session": "^1.18.0",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0"
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mannanhashmi/nova-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mannanhashmi/nova-ai/issues"
+  },
+  "homepage": "https://nova-ai-production-5ad8.up.railway.app"
 }
