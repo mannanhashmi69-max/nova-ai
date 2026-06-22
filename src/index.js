@@ -1,8 +1,12 @@
-const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-const https   = require('https');
-const dns     = require('dns');
+const express    = require('express');
+const cors       = require('cors');
+const path       = require('path');
+const https      = require('https');
+const dns        = require('dns');
+const rateLimit  = require('express-rate-limit');
+const session    = require('express-session');
+const passport   = require('passport');
+const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -13,20 +17,62 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
+// ─── Session ───────────────────────────────────────────────
+app.use(session({
+  secret: ENV.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 7 * 24 * 60 * 60 * 1000   // 7 days
+  }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+// ─── Rate limiters (Fix #4 — ChatGPT) ─────────────────────
+// Chat: 30 requests / minute per IP — protects Groq/Gemini quotas
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '⚠️ Too many messages. Please wait a moment.' }
+});
+// Image: 10 requests / minute — image gen is slower & more expensive
+const imageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: '⚠️ Too many image requests. Please wait a moment.' }
+});
+// General API: 120 requests / minute
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: { error: '⚠️ Too many requests.' }
+});
+app.use('/api/', apiLimiter);
+
 const ENV = {
-  GROQ_KEY:   (process.env.GROQ_API_KEY   || '').trim(),
-  GEMINI_KEY: (process.env.GEMINI_API_KEY || '').trim(),
+  GROQ_KEY:             (process.env.GROQ_API_KEY          || '').trim(),
+  GEMINI_KEY:           (process.env.GEMINI_API_KEY         || '').trim(),
+  GOOGLE_CLIENT_ID:     (process.env.GOOGLE_CLIENT_ID       || '').trim(),
+  GOOGLE_CLIENT_SECRET: (process.env.GOOGLE_CLIENT_SECRET   || '').trim(),
+  SESSION_SECRET:       (process.env.SESSION_SECRET         || 'nova-dev-secret-change-me'),
+  BASE_URL:             (process.env.BASE_URL               || 'http://localhost:5000'),
 };
 
 (function validateEnv() {
   const checks = [
-    { val: ENV.GROQ_KEY,   prefix: 'gsk_',   label: 'Groq',   key: 'GROQ_API_KEY'   },
-    { val: ENV.GEMINI_KEY, prefix: 'AIzaSy', label: 'Gemini', key: 'GEMINI_API_KEY' },
+    { val: ENV.GROQ_KEY,             prefix: 'gsk_',   label: 'Groq',   key: 'GROQ_API_KEY'          },
+    { val: ENV.GEMINI_KEY,           prefix: 'AIzaSy', label: 'Gemini', key: 'GEMINI_API_KEY'         },
+    { val: ENV.GOOGLE_CLIENT_ID,     prefix: '',       label: 'Google OAuth (Client ID)',  key: 'GOOGLE_CLIENT_ID'      },
+    { val: ENV.GOOGLE_CLIENT_SECRET, prefix: '',       label: 'Google OAuth (Secret)',     key: 'GOOGLE_CLIENT_SECRET'  },
   ];
   for (const { val, prefix, label, key } of checks) {
-    if (!val)                         console.warn (`⚠️  ${key} not set — ${label} disabled`);
-    else if (!val.startsWith(prefix)) console.error(`❌  ${key} looks wrong — expected prefix "${prefix}"`);
-    else                              console.log  (`✅  ${key} loaded (${label})`);
+    if (!val)                                  console.warn (`⚠️  ${key} not set — ${label} disabled`);
+    else if (prefix && !val.startsWith(prefix)) console.error(`❌  ${key} looks wrong — expected prefix "${prefix}"`);
+    else                                       console.log  (`✅  ${key} loaded (${label})`);
   }
   console.log('✅  Image: Pollinations flux-schnell → flux → picsum fallback');
 })();
@@ -54,11 +100,74 @@ async function safeJson(res) {
   catch { throw new Error(`Non-JSON response: ${text.slice(0, 120)}`); }
 }
 
+// ─── In-memory user store (replace with DB later) ──────────
+const users = new Map();   // googleId → { id, name, email, picture }
+
+// ─── Passport: Google OAuth ────────────────────────────────
+if (ENV.GOOGLE_CLIENT_ID && ENV.GOOGLE_CLIENT_SECRET) {
+  passport.use(new GoogleStrategy(
+    {
+      clientID:     ENV.GOOGLE_CLIENT_ID,
+      clientSecret: ENV.GOOGLE_CLIENT_SECRET,
+      callbackURL:  `${ENV.BASE_URL}/auth/google/callback`,
+    },
+    (_accessToken, _refreshToken, profile, done) => {
+      const user = {
+        id:      profile.id,
+        name:    profile.displayName,
+        email:   profile.emails?.[0]?.value || '',
+        picture: profile.photos?.[0]?.value || '',
+      };
+      users.set(profile.id, user);
+      return done(null, user);
+    }
+  ));
+  passport.serializeUser((user, done) => done(null, user.id));
+  passport.deserializeUser((id, done) => done(null, users.get(id) || false));
+}
+
+// ─── Auth routes ───────────────────────────────────────────
+// GET /auth/google        → redirect to Google consent screen
+// GET /auth/google/callback → Google returns here after login
+// GET /api/me             → frontend polls this to check login state
+// GET /logout             → clear session
+
+app.get('/auth/google', (req, res, next) => {
+  if (!ENV.GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: 'Google login not configured on this server.' });
+  }
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
+
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/?auth=failed' }),
+  (req, res) => res.redirect('/?auth=success')
+);
+
+app.get('/api/me', (req, res) => {
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return res.json({ loggedIn: true, user: req.user });
+  }
+  res.json({ loggedIn: false });
+});
+
+app.get('/logout', (req, res) => {
+  req.logout?.(() => {});
+  req.session?.destroy?.();
+  res.redirect('/');
+});
+
 // ─── Health ────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
     status:    'healthy',
-    providers: { groq: !!ENV.GROQ_KEY, gemini: !!ENV.GEMINI_KEY, pollinations: true, victor: true },
+    providers: {
+      groq:         !!ENV.GROQ_KEY,
+      gemini:       !!ENV.GEMINI_KEY,
+      pollinations: true,
+      victor:       true,
+      googleAuth:   !!(ENV.GOOGLE_CLIENT_ID && ENV.GOOGLE_CLIENT_SECRET),
+    },
     timestamp: new Date().toISOString()
   });
 });
@@ -95,7 +204,7 @@ app.post('/api/guest', (req, res) => {
 //   - Buffer fully read before checking content-type (Railway streaming quirk)
 //   - Picsum guaranteed fallback so users NEVER see a blank error
 
-app.post('/api/image', async (req, res) => {
+app.post('/api/image', imageLimiter, async (req, res) => {
   const { prompt, size = '512' } = req.body;
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -237,7 +346,10 @@ const AI_PROVIDERS = [
       if (res.status === 429) throw new RateLimitError('Gemini');
       if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 100)}`);
       const data = await safeJson(res);
-      return data.candidates[0].content.parts[0].text.trim();
+      // FIX (Bug #2): Gemini returns no candidates on safety blocks — guard with optional chaining
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('Gemini returned empty or blocked response');
+      return text.trim();
     }
   },
   {
@@ -252,7 +364,10 @@ const AI_PROVIDERS = [
       if (res.status === 429) throw new RateLimitError('Pollinations');
       if (!res.ok) throw new Error(`Pollinations ${res.status}`);
       const data = await safeJson(res);
-      return data.choices[0].message.content.trim();
+      // FIX (Bug #3): free endpoints can return malformed payloads
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text) throw new Error('Pollinations returned empty response');
+      return text.trim();
     }
   }
 ];
@@ -354,7 +469,7 @@ async function runVictorPipeline(messages) {
 }
 
 // ─── Chat endpoint ─────────────────────────────────────────
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimiter, async (req, res) => {
   res.setHeader('Content-Type',  'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection',    'keep-alive');
@@ -362,16 +477,25 @@ app.post('/api/chat', async (req, res) => {
 
   const sendError = (msg) => { res.write(`data: ${JSON.stringify({ error: msg })}\n\n`); res.end(); };
 
+  // FIX (Bug #8): cancel provider fetch if browser disconnects mid-stream
+  const reqController = new AbortController();
+  req.on('close', () => reqController.abort());
+
   try {
     const userMessage = req.body.message;
     const history     = req.body.history || [];
-    const model       = (req.body.model || 'auto').toLowerCase(); // FIX: model selection
+    const model       = (req.body.model || 'auto').toLowerCase();
     if (!userMessage || typeof userMessage !== 'string') return sendError('Message is required');
     if (userMessage.length > 12000) return sendError('Message too long (max 12000 chars)');
 
+    // FIX (Bug #1): strip any injected system roles from client-supplied history
+    const safeHistory = history
+      .filter(m => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string')
+      .slice(-10);
+
     const messages = [
       { role: 'system', content: 'You are Nova AI, a futuristic, intelligent, and helpful AI assistant. Be concise, friendly, and insightful. When the user sends file contents, read them carefully and answer based on that content. Refuse harmful or illegal requests politely.' },
-      ...history.slice(-10),
+      ...safeHistory,
       { role: 'user', content: userMessage }
     ];
 
