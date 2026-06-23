@@ -132,6 +132,7 @@
     display:inline-flex; align-items:center; gap:5px;
   }
   .pill-primary{background:rgba(59,130,246,.15); border-color:rgba(59,130,246,.3); color:#93C5FD;}
+  .pill-error{background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.3); color:#FCA5A5;}
 
   /* ── Conversation ── */
   .conversation{flex:1; overflow-y:auto; padding:24px; scroll-behavior:smooth;}
@@ -432,6 +433,7 @@
   };
 
   const MAX_STORED_MESSAGES = 100;
+  let activeChatController = null;
 
   /* ─────────────────────────── Utilities ─────────────────────────── */
   function escapeHtml(str){
@@ -485,6 +487,17 @@
     const label = ok ? (okLabel || 'Available') : (badLabel || 'Unavailable');
     return '<span class="badge ' + (ok ? 'badge-ok' : 'badge-bad') + '">' +
       '<svg class="icon" width="11" height="11"><use href="#' + icon + '"/></svg>' + label + '</span>';
+  }
+
+  // Only allow safe image sources: base64 data URLs or http(s). Anything else (e.g. javascript:) is rejected.
+  function safeImageUrl(url){
+    if(typeof url !== 'string') return null;
+    if(/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url)) return url;
+    try{
+      const parsed = new URL(url, window.location.href);
+      if(parsed.protocol === 'https:' || parsed.protocol === 'http:') return parsed.href;
+    }catch(e){ /* invalid URL */ }
+    return null;
   }
 
   const TOAST_ICONS = { success:'i-check-circle', error:'i-x-circle', warning:'i-alert', info:'i-info' };
@@ -562,6 +575,10 @@
     const guestActive = !!state.guestToken && !(state.user && state.user.loggedIn);
 
     if(state.user && state.user.loggedIn && state.user.user){
+      if(state.guestToken){
+        localStorage.removeItem('nova_guest_token');
+        state.guestToken = null;
+      }
       const u = state.user.user;
       const initial = (u.name || 'U').charAt(0).toUpperCase();
       userSection.innerHTML =
@@ -604,8 +621,11 @@
   async function guestLogin(){
     const btn = document.getElementById('guestLoginBtn');
     if(btn) setButtonLoading(btn, true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try{
-      const res = await fetch('/api/guest', { method: 'POST', credentials: 'include' });
+      const res = await fetch('/api/guest', { method: 'POST', credentials: 'include', signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if(data && data.success){
         state.guestToken = data.token;
@@ -616,8 +636,9 @@
         showToast('Guest login failed', 'error');
       }
     }catch(err){
+      clearTimeout(timeoutId);
       console.error(err);
-      showToast('Guest login failed — server unreachable', 'error');
+      showToast(err.name === 'AbortError' ? 'Guest login timed out — try again' : 'Guest login failed — server unreachable', 'error');
     }finally{
       if(btn) setButtonLoading(btn, false);
     }
@@ -744,6 +765,7 @@
     }catch(err){
       console.error('Health check failed', err);
       overallPill.innerHTML = '<svg class="icon" width="13" height="13"><use href="#i-x-circle"/></svg> Unreachable';
+      overallPill.className = 'pill pill-error';
       grid.innerHTML = '<div class="card-desc">Could not reach health endpoint.</div>';
       globalDot.classList.add('down');
       globalBadge.classList.add('down');
@@ -887,11 +909,17 @@
     let assistantBubble = null;
     let providerLabel = '';
 
+    const controller = new AbortController();
+    activeChatController = controller;
+    let idleTimer = setTimeout(() => controller.abort(), 30000);
+    const resetIdleTimer = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => controller.abort(), 30000); };
+
     try{
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({ message: text, history: historyForRequest, model: state.selectedModel })
       });
 
@@ -906,6 +934,7 @@
       while(true){
         const { done, value } = await reader.read();
         if(done) break;
+        resetIdleTimer();
         buffer += decoder.decode(value, { stream: true });
 
         const events = buffer.split('\n\n');
@@ -958,11 +987,17 @@
       }
 
     }catch(err){
-      console.error('Chat error:', err);
       const typing = document.getElementById('typingRow');
       if(typing) typing.remove();
-      showToast(err.message || 'Nova AI is temporarily busy. Please try again.', 'error');
+      if(err.name === 'AbortError'){
+        if(!controller._userCancelled) showToast('Chat request timed out or was cancelled', 'warning');
+      } else {
+        console.error('Chat error:', err);
+        showToast(err.message || 'Nova AI is temporarily busy. Please try again.', 'error');
+      }
     }finally{
+      clearTimeout(idleTimer);
+      if(activeChatController === controller) activeChatController = null;
       state.isStreaming = false;
       sendBtn.disabled = false;
       chatInput.disabled = false;
@@ -972,7 +1007,7 @@
   }
 
   document.getElementById('newChatBtn').addEventListener('click', () => {
-    if(state.isStreaming) return;
+    if(activeChatController){ activeChatController._userCancelled = true; activeChatController.abort(); }
     state.history = [];
     persistHistory();
     renderHistory();
@@ -981,7 +1016,7 @@
   });
 
   document.getElementById('clearChatBtn').addEventListener('click', () => {
-    if(state.isStreaming) return;
+    if(activeChatController){ activeChatController._userCancelled = true; activeChatController.abort(); }
     state.history = [];
     persistHistory();
     renderHistory();
@@ -1035,44 +1070,83 @@
     progress.classList.add('show');
     resultEl.innerHTML = '';
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
     try{
       const res = await fetch('/api/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({ prompt: prompt, size: selectedSize })
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
 
       if(!res.ok || data.error){
         throw new Error(data.error || 'Image generation failed');
       }
 
-      resultEl.innerHTML =
-        '<img src="' + data.imageUrl + '" alt="' + escapeHtml(prompt) + '">' +
-        '<div class="image-result-meta">' +
-          '<span class="pill">Source: ' + escapeHtml(data.source || 'unknown') + '</span>' +
-          '<button class="btn btn-sm" id="downloadImgBtn"><svg class="icon" width="13" height="13"><use href="#i-download"/></svg> Download</button>' +
-        '</div>' +
-        (data.note ? '<div class="card-desc" style="margin-top:8px;">' + escapeHtml(data.note) + '</div>' : '');
+      const safeUrl = safeImageUrl(data.imageUrl);
+      if(!safeUrl){
+        throw new Error('Image provider returned an unsafe or invalid URL');
+      }
 
-      document.getElementById('downloadImgBtn').addEventListener('click', () => {
+      // Build result via DOM APIs (not string-concat) so the URL is assigned as a
+      // property, never parsed as HTML — this is what prevents markup injection.
+      resultEl.innerHTML = '';
+
+      const img = document.createElement('img');
+      img.alt = prompt;
+      img.src = safeUrl;
+      img.onerror = () => {
+        resultEl.innerHTML = '<div class="card-desc" style="display:flex;align-items:center;gap:6px;"><svg class="icon" width="14" height="14" style="color:var(--error)"><use href="#i-alert"/></svg> Image failed to load</div>';
+      };
+
+      const metaRow = document.createElement('div');
+      metaRow.className = 'image-result-meta';
+
+      const sourcePill = document.createElement('span');
+      sourcePill.className = 'pill';
+      sourcePill.textContent = 'Source: ' + (data.source || 'unknown');
+
+      const downloadBtn = document.createElement('button');
+      downloadBtn.className = 'btn btn-sm';
+      downloadBtn.id = 'downloadImgBtn';
+      downloadBtn.innerHTML = '<svg class="icon" width="13" height="13"><use href="#i-download"/></svg> Download';
+      downloadBtn.addEventListener('click', () => {
         const a = document.createElement('a');
-        a.href = data.imageUrl;
+        a.href = safeUrl;
         a.download = 'nova-ai-image-' + Date.now() + '.jpg';
         document.body.appendChild(a);
         a.click();
         a.remove();
       });
 
+      metaRow.appendChild(sourcePill);
+      metaRow.appendChild(downloadBtn);
+      resultEl.appendChild(img);
+      resultEl.appendChild(metaRow);
+
+      if(data.note){
+        const noteEl = document.createElement('div');
+        noteEl.className = 'card-desc';
+        noteEl.style.marginTop = '8px';
+        noteEl.textContent = data.note;
+        resultEl.appendChild(noteEl);
+      }
+
       showToast('Image generated', 'success');
     }catch(err){
+      clearTimeout(timeoutId);
       console.error('Image generation error:', err);
+      const msg = err.name === 'AbortError' ? 'Generation timed out — try again' : err.message;
       resultEl.innerHTML =
-        '<div class="card-desc" style="display:flex;align-items:center;gap:6px;"><svg class="icon" width="14" height="14" style="color:var(--error)"><use href="#i-alert"/></svg> ' + escapeHtml(err.message) + '</div>' +
+        '<div class="card-desc" style="display:flex;align-items:center;gap:6px;"><svg class="icon" width="14" height="14" style="color:var(--error)"><use href="#i-alert"/></svg> ' + escapeHtml(msg) + '</div>' +
         '<button class="btn btn-sm" id="retryImgBtn" style="margin-top:10px;"><svg class="icon" width="13" height="13"><use href="#i-refresh"/></svg> Retry</button>';
       document.getElementById('retryImgBtn').addEventListener('click', generateImage);
-      showToast(err.message || 'Image generation failed', 'error');
+      showToast(msg || 'Image generation failed', 'error');
     }finally{
       setButtonLoading(btn, false);
       progress.classList.remove('show');
