@@ -8,6 +8,13 @@ const session    = require('express-session');
 const passport   = require('passport');
 const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
 
+const db            = require('./db');
+const billing       = require('./billing/stripe');
+const billingRoutes = require('./billing/routes');
+const conversationsRoutes = require('./conversations/routes');
+const { generateTitle } = require('./conversations/titles');
+const { attachUser, usageGate } = require('./middleware/usageGate');
+
 dns.setDefaultResultOrder('ipv4first');
 
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
@@ -16,6 +23,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 const ENV = {
   GROQ_KEY:             (process.env.GROQ_API_KEY          || '').trim(),
   GEMINI_KEY:           (process.env.GEMINI_API_KEY         || '').trim(),
+  OPENAI_KEY:           (process.env.OPENAI_API_KEY         || '').trim(),
   GOOGLE_CLIENT_ID:     (process.env.GOOGLE_CLIENT_ID       || '').trim(),
   GOOGLE_CLIENT_SECRET: (process.env.GOOGLE_CLIENT_SECRET   || '').trim(),
   SESSION_SECRET:       (process.env.SESSION_SECRET         || ''),
@@ -27,9 +35,12 @@ const ENV = {
   const checks = [
     { val: ENV.GROQ_KEY,             prefix: 'gsk_',   label: 'Groq',              key: 'GROQ_API_KEY'          },
     { val: ENV.GEMINI_KEY,           prefix: 'AIzaSy', label: 'Gemini',            key: 'GEMINI_API_KEY'        },
+    { val: ENV.OPENAI_KEY,           prefix: 'sk-',    label: 'OpenAI (ChatGPT)',  key: 'OPENAI_API_KEY'        },
     { val: ENV.GOOGLE_CLIENT_ID,     prefix: '',       label: 'Google OAuth ID',   key: 'GOOGLE_CLIENT_ID'      },
     { val: ENV.GOOGLE_CLIENT_SECRET, prefix: '',       label: 'Google OAuth Secret', key: 'GOOGLE_CLIENT_SECRET'},
     { val: ENV.SESSION_SECRET,       prefix: '',       label: 'Session Secret',    key: 'SESSION_SECRET'        },
+    { val: (process.env.DATABASE_URL      || '').trim(), prefix: '',    label: 'Database (Postgres)', key: 'DATABASE_URL'      },
+    { val: (process.env.STRIPE_SECRET_KEY || '').trim(), prefix: 'sk_', label: 'Stripe',               key: 'STRIPE_SECRET_KEY' },
   ];
   for (const { val, prefix, label, key } of checks) {
     if (!val)                                   console.warn(`[WARN] ${key} not set — ${label} disabled`);
@@ -55,6 +66,10 @@ app.use(cors({
     : '*',
   credentials: true
 }));
+// Stripe needs the RAW request body to verify webhook signatures — this must
+// be registered before express.json() below, or signature checks will fail.
+billingRoutes.mountWebhook(app);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
@@ -71,6 +86,7 @@ app.use(session({
 }));
 app.use(passport.initialize());
 app.use(passport.session());
+app.use(attachUser); // resolves req.dbUser / req.subscription / req.tier when logged in
 
 // ─── Rate limiters (Fix #4 — ChatGPT) ─────────────────────
 // Chat: 30 requests / minute per IP — protects Groq/Gemini quotas
@@ -118,7 +134,11 @@ async function safeJson(res) {
   catch { throw new Error(`Non-JSON response: ${text.slice(0, 120)}`); }
 }
 
-// ─── In-memory user store (replace with DB later) ──────────
+// ─── In-memory user store (session identity only) ──────────
+// Still used for passport serialize/deserialize within one server process —
+// this is unrelated to billing. Persisted accounts, tiers, and usage now
+// live in Postgres via src/db (see attachUser in src/middleware/usageGate.js),
+// populated from this same Google profile on every authenticated request.
 const users = new Map();   // googleId → { id, name, email, picture }
 
 // ─── Passport: Google OAuth ────────────────────────────────
@@ -162,9 +182,20 @@ app.get('/auth/google/callback',
   (req, res) => res.redirect('/?auth=success')
 );
 
-app.get('/api/me', (req, res) => {
+app.get('/api/me', async (req, res) => {
   if (req.isAuthenticated && req.isAuthenticated()) {
-    return res.json({ loggedIn: true, user: req.user });
+    const payload = { loggedIn: true, user: req.user };
+    if (req.dbUser && req.tier) {
+      payload.billing = {
+        tier:     req.tier.id,
+        tierName: req.tier.name,
+        status:   req.subscription?.status || 'active',
+        limits:   req.tier.limits,
+        features: req.tier.features,
+        usage:    await db.getUsage(req.dbUser.id),
+      };
+    }
+    return res.json(payload);
   }
   res.json({ loggedIn: false });
 });
@@ -182,9 +213,12 @@ app.get('/api/health', (req, res) => {
     providers: {
       groq:         !!ENV.GROQ_KEY,
       gemini:       !!ENV.GEMINI_KEY,
+      chatgpt:      !!ENV.OPENAI_KEY,
       pollinations: true,
       victor:       true,
       googleAuth:   !!(ENV.GOOGLE_CLIENT_ID && ENV.GOOGLE_CLIENT_SECRET),
+      database:     db.isEnabled(),
+      billing:      billing.isEnabled(),
     },
     timestamp: new Date().toISOString()
   });
@@ -198,10 +232,17 @@ app.get('/api/models', (req, res) => {
       { id: 'victor',       name: 'Victor',            description: 'Multi-agent: routes → drafts → validates → refines',           available: true },
       { id: 'groq',         name: 'Groq · Llama 3.3',  description: 'Fast and high quality',                                        available: !!ENV.GROQ_KEY },
       { id: 'gemini',       name: 'Gemini 2.0',        description: "Google's flash model",                                         available: !!ENV.GEMINI_KEY },
+      { id: 'chatgpt',      name: 'ChatGPT · GPT-5.4 mini', description: "OpenAI's fast, cost-efficient model",                      available: !!ENV.OPENAI_KEY },
       { id: 'pollinations', name: 'Pollinations',      description: 'Free, always available',                                       available: true }
     ]
   });
 });
+
+// ─── Billing (Stripe checkout / customer portal / public tier list) ──
+app.use('/api/billing', billingRoutes.router);
+app.use('/api/conversations', conversationsRoutes.router);
+app.use('/api/search', conversationsRoutes.searchRouter);
+app.use('/api/export', conversationsRoutes.exportRouter);
 
 // ─── Guest login ───────────────────────────────────────────
 app.post('/api/guest', (req, res) => {
@@ -222,7 +263,7 @@ app.post('/api/guest', (req, res) => {
 //   - Buffer fully read before checking content-type (Railway streaming quirk)
 //   - Picsum guaranteed fallback so users NEVER see a blank error
 
-app.post('/api/image', imageLimiter, async (req, res) => {
+app.post('/api/image', imageLimiter, usageGate('images'), async (req, res) => {
   const { prompt, size = '512' } = req.body;
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -374,6 +415,28 @@ const AI_PROVIDERS = [
     }
   },
   {
+    name:      'ChatGPT',
+    available: () => !!ENV.OPENAI_KEY,
+    call:      async (messages, signal) => {
+      const res = await fetchWithTimeout(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${ENV.OPENAI_KEY}` },
+          body: JSON.stringify({ model: 'gpt-5.4-mini', messages, max_tokens: 2048, temperature: 0.7 }),
+          signal
+        },
+        20000
+      );
+      if (res.status === 429) throw new RateLimitError('ChatGPT');
+      if (!res.ok) throw new Error(`ChatGPT ${res.status}: ${(await res.text()).slice(0, 100)}`);
+      const data = await safeJson(res);
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text) throw new Error('ChatGPT returned empty response');
+      return text.trim();
+    }
+  },
+  {
     name:      'Pollinations',
     available: () => true,
     call:      async (messages, signal) => {
@@ -491,7 +554,7 @@ async function runVictorPipeline(messages, signal) {
 }
 
 // ─── Chat endpoint ─────────────────────────────────────────
-app.post('/api/chat', chatLimiter, async (req, res) => {
+app.post('/api/chat', chatLimiter, usageGate('messages'), async (req, res) => {
   res.setHeader('Content-Type',  'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection',    'keep-alive');
@@ -507,6 +570,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     const userMessage = req.body.message;
     const history     = req.body.history || [];
     const model       = (req.body.model || 'auto').toLowerCase();
+    let   conversationId = req.body.conversationId || null;
     if (!userMessage || typeof userMessage !== 'string') return sendError('Message is required');
     if (userMessage.length > 12000) return sendError('Message too long (max 12000 chars)');
 
@@ -526,6 +590,26 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       ? await runVictorPipeline(messages, reqController.signal)
       : await getAIReply(messages, model, reqController.signal);
 
+    // Persist to Postgres for logged-in users only — guests keep working
+    // exactly as before, just unpersisted. Never let a save failure break
+    // an otherwise-successful reply, same fail-open pattern as usageGate.
+    if (db.isEnabled() && req.dbUser) {
+      try {
+        if (conversationId) {
+          const owned = await db.getConversation(conversationId, req.dbUser.id);
+          if (!owned) conversationId = null; // not theirs (or doesn't exist) — start fresh instead of trusting client input
+        }
+        if (!conversationId) {
+          const conversation = await db.createConversation(req.dbUser.id, generateTitle(userMessage));
+          conversationId = conversation.id;
+        }
+        await db.addMessage(conversationId, { role: 'user', content: userMessage });
+        await db.addMessage(conversationId, { role: 'assistant', content: reply, provider });
+      } catch (err) {
+        console.warn('[WARN] Failed to persist conversation history:', err.message);
+      }
+    }
+
     const words = reply.split(' ');
     const CHUNK_SIZE = 8;
     for (let i = 0; i < words.length; i += CHUNK_SIZE) {
@@ -533,7 +617,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
       await new Promise(r => setTimeout(r, 30));
     }
-    res.write(`data: ${JSON.stringify({ done: true, provider })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, provider, conversationId })}\n\n`);
     res.end();
   } catch (err) {
     console.error('Chat failed:', err.message);
@@ -547,11 +631,22 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`[OK]   Nova AI v2.0 running on port ${PORT}`);
-  console.log(`[OK]   Environment: ${ENV.NODE_ENV}`);
-  console.log(`[OK]   Base URL: ${ENV.BASE_URL}`);
-}).on('error', (err) => {
-  console.error(`[ERR]  Server failed to start: ${err.message}`);
-  process.exit(1);
-});
+
+(async function start() {
+  try {
+    await db.migrate();
+  } catch (err) {
+    console.error('[ERR]  Database migration failed — billing/usage tracking disabled:', err.message);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`[OK]   Nova AI v2.0 running on port ${PORT}`);
+    console.log(`[OK]   Environment: ${ENV.NODE_ENV}`);
+    console.log(`[OK]   Base URL: ${ENV.BASE_URL}`);
+    console.log(`[OK]   Database: ${db.isEnabled() ? 'connected' : 'not configured — running message-limit-free, as before'}`);
+    console.log(`[OK]   Billing:  ${billing.isEnabled() ? 'connected' : 'not configured — checkout/portal routes return 503'}`);
+  }).on('error', (err) => {
+    console.error(`[ERR]  Server failed to start: ${err.message}`);
+    process.exit(1);
+  });
+})();
