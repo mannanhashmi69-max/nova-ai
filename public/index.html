@@ -249,6 +249,27 @@
   .tier-card.current{border-color:var(--primary); box-shadow:0 0 0 1px var(--primary) inset;}
   .tier-limits{font-size:12.5px; color:var(--text-2); line-height:1.6; flex:1;}
 
+  /* ── Conversation list (sidebar) ── */
+  .conv-section{padding:0 16px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; min-height:0;}
+  .conv-section-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .conv-search-wrap{position:relative; margin-bottom:8px;}
+  .conv-search-icon{position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--text-2); pointer-events:none;}
+  .conv-search-input{width:100%; padding:7px 10px 7px 30px; background:var(--card); border:1px solid var(--border); border-radius:8px; color:var(--text-0); font-size:12.5px; box-sizing:border-box;}
+  .conv-search-input:focus{outline:2px solid var(--primary); outline-offset:1px;}
+  .conv-list{overflow-y:auto; max-height:220px; display:flex; flex-direction:column; gap:2px;}
+  .conv-item{display:flex; align-items:center; gap:6px; padding:7px 8px; border-radius:8px; cursor:pointer; position:relative;}
+  .conv-item:hover{background:var(--card);}
+  .conv-item.active{background:var(--card); box-shadow:inset 2px 0 0 var(--primary);}
+  .conv-item-title{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; color:var(--text-0); border:none; background:transparent; font-family:inherit; padding:1px 0;}
+  .conv-item-title:focus{outline:1px solid var(--primary); border-radius:4px; background:var(--bg-1);}
+  .conv-item-actions{display:none; gap:2px; flex-shrink:0;}
+  .conv-item:hover .conv-item-actions{display:flex;}
+  .conv-item-actions button{background:none; border:none; padding:3px; cursor:pointer; color:var(--text-2); border-radius:5px; display:flex;}
+  .conv-item-actions button:hover{color:var(--text-0); background:var(--border);}
+  .conv-item-actions button.starred{color:var(--warning);}
+  .conv-item-empty{font-size:12px; color:var(--text-2); padding:8px 4px;}
+  .conv-archived-toggle{background:none; border:none; color:var(--text-2); font-size:11.5px; cursor:pointer; padding:6px 2px 0; text-align:left; text-decoration:underline;}
+
   /* ── Toasts ── */
   .toast-container{position:fixed; top:18px; right:18px; z-index:200; display:flex; flex-direction:column; gap:10px; max-width:320px;}
   .toast{
@@ -310,6 +331,10 @@
   <symbol id="i-loader" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="11"/><circle class="icon-solid" cx="12" cy="7.7" r="0.6"/></symbol>
   <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="5" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
 </defs>
 </svg>
 
@@ -334,6 +359,20 @@
         <option>Loading models…</option>
       </select>
       <div class="model-desc" id="modelDesc"></div>
+    </div>
+
+    <div class="conv-section" id="convSection" style="display:none;">
+      <div class="conv-section-head">
+        <div class="section-label" style="margin:0;">Conversations</div>
+        <button class="btn btn-sm btn-ghost" id="convNewBtn" title="New conversation"><svg class="icon" width="13" height="13"><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="conv-search-wrap">
+        <svg class="icon conv-search-icon" width="14" height="14"><use href="#i-search"/></svg>
+        <input type="text" id="convSearchInput" class="conv-search-input" placeholder="Search conversations…" aria-label="Search conversations">
+      </div>
+      <div class="conv-list" id="convList"></div>
+      <button class="btn btn-sm btn-ghost" id="convLoadMoreBtn" style="display:none; width:100%; margin-top:6px;">Load more</button>
+      <button class="conv-archived-toggle" id="convArchivedToggle" type="button">Show archived</button>
     </div>
 
     <nav class="nav" aria-label="Main navigation">
@@ -469,13 +508,18 @@
 
   /* ─────────────────────────── State ─────────────────────────── */
   const state = {
-    history: [],              // [{role, content, provider, ts}]
+    history: [],              // [{role, content, provider, ts}] — current conversation's messages
     models: [],
     selectedModel: 'auto',
     user: null,                // {loggedIn, user, billing?}
     tiers: [],                 // from /api/billing/tiers
     guestToken: localStorage.getItem('nova_guest_token') || null,
     isStreaming: false,
+    conversationId: null,      // active conversation, when persistence is available
+    conversations: [],         // cached list from /api/conversations
+    convNextCursor: null,
+    convShowArchived: false,
+    convSearchQuery: '',
   };
 
   const MAX_STORED_MESSAGES = 100;
@@ -1025,6 +1069,202 @@
     }
   }
 
+  /* ─────────────────────────── Conversations (server-backed history) ─────────────────────────── */
+  function persistenceAvailable(){
+    return !!(state.user && state.user.loggedIn && state.user.billing);
+  }
+
+  function debounce(fn, ms){
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+
+  async function loadConversationList(opts){
+    opts = opts || {};
+    if(!persistenceAvailable()) return;
+    document.getElementById('convSection').style.display = 'flex';
+    try{
+      const params = new URLSearchParams();
+      if(state.convShowArchived) params.set('archived', 'true');
+      if(opts.append && state.convNextCursor) params.set('cursor', state.convNextCursor);
+
+      const res = await fetch('/api/conversations?' + params.toString(), { credentials: 'include' });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'Failed to load conversations');
+
+      state.conversations = opts.append ? state.conversations.concat(data.items) : data.items;
+      state.convNextCursor = data.next_cursor;
+      renderConversationList();
+    }catch(err){
+      console.error('loadConversationList failed:', err);
+    }
+  }
+
+  function renderConversationList(){
+    const list = document.getElementById('convList');
+    const loadMoreBtn = document.getElementById('convLoadMoreBtn');
+    document.getElementById('convArchivedToggle').textContent = state.convShowArchived ? 'Show active' : 'Show archived';
+
+    if(state.conversations.length === 0){
+      list.innerHTML = '<div class="conv-item-empty">' + (state.convSearchQuery ? 'No matches' : (state.convShowArchived ? 'No archived conversations' : 'No conversations yet')) + '</div>';
+      loadMoreBtn.style.display = 'none';
+      return;
+    }
+
+    list.innerHTML = state.conversations.map(c => {
+      const active = c.id === state.conversationId;
+      return '<div class="conv-item' + (active ? ' active' : '') + '" data-id="' + c.id + '">' +
+        '<input class="conv-item-title" value="' + escapeHtml(c.title) + '" data-id="' + c.id + '" readonly>' +
+        '<div class="conv-item-actions">' +
+          '<button class="' + (c.starred ? 'starred' : '') + '" data-action="star" data-id="' + c.id + '" title="Star" type="button"><svg class="icon" width="13" height="13"><use href="#i-star"/></svg></button>' +
+          '<button data-action="archive" data-id="' + c.id + '" title="' + (c.archived ? 'Unarchive' : 'Archive') + '" type="button"><svg class="icon" width="13" height="13"><use href="#i-archive"/></svg></button>' +
+          '<button data-action="delete" data-id="' + c.id + '" title="Delete" type="button"><svg class="icon" width="13" height="13"><use href="#i-trash"/></svg></button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    loadMoreBtn.style.display = state.convNextCursor ? 'block' : 'none';
+
+    list.querySelectorAll('.conv-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if(e.target.closest('.conv-item-actions')) return;
+        if(e.target.tagName === 'INPUT') return; // let dblclick-to-rename own the input
+        selectConversation(item.dataset.id);
+      });
+    });
+
+    list.querySelectorAll('.conv-item-title').forEach(input => {
+      input.addEventListener('dblclick', (e) => { e.stopPropagation(); input.readOnly = false; input.focus(); input.select(); });
+      input.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter') input.blur();
+        if(e.key === 'Escape'){ const c = state.conversations.find(c => c.id === input.dataset.id); if(c) input.value = c.title; input.blur(); }
+      });
+      input.addEventListener('blur', () => {
+        input.readOnly = true;
+        const conv = state.conversations.find(c => c.id === input.dataset.id);
+        const newTitle = input.value.trim();
+        if(conv && newTitle && newTitle !== conv.title) renameConversation(conv.id, newTitle);
+        else if(conv) input.value = conv.title;
+      });
+    });
+
+    list.querySelectorAll('[data-action="star"]').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); toggleStar(btn.dataset.id); }));
+    list.querySelectorAll('[data-action="archive"]').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); toggleArchive(btn.dataset.id); }));
+    list.querySelectorAll('[data-action="delete"]').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); deleteConversationUI(btn.dataset.id); }));
+  }
+
+  async function selectConversation(id){
+    if(state.isStreaming){ showToast('Wait for the current response to finish', 'warning'); return; }
+    try{
+      const res = await fetch('/api/conversations/' + id + '/messages', { credentials: 'include' });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'Failed to load conversation');
+      state.conversationId = id;
+      state.history = data.items.map(m => ({ role: m.role, content: m.content, provider: m.provider, ts: new Date(m.created_at).getTime() }));
+      renderHistory();
+      document.getElementById('chatProviderPill').style.display = 'none';
+      renderConversationList();
+    }catch(err){
+      console.error('selectConversation failed:', err);
+      showToast('Could not load that conversation', 'error');
+    }
+  }
+
+  function startNewConversation(){
+    if(activeChatController){ activeChatController._cancelReason = 'silent'; activeChatController.abort(); }
+    state.conversationId = null;
+    state.history = [];
+    renderHistory();
+    renderConversationList();
+    document.getElementById('chatProviderPill').style.display = 'none';
+    showToast('Started a new conversation', 'info');
+  }
+
+  async function renameConversation(id, title){
+    try{
+      const res = await fetch('/api/conversations/' + id, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title })
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error);
+      const conv = state.conversations.find(c => c.id === id);
+      if(conv) conv.title = data.title;
+    }catch(err){
+      showToast('Could not rename conversation', 'error');
+      loadConversationList();
+    }
+  }
+
+  async function toggleStar(id){
+    const conv = state.conversations.find(c => c.id === id);
+    if(!conv) return;
+    const starred = !conv.starred;
+    conv.starred = starred; // optimistic
+    renderConversationList();
+    try{
+      await fetch('/api/conversations/' + id, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ starred })
+      });
+    }catch(err){
+      conv.starred = !starred;
+      renderConversationList();
+      showToast('Could not update star', 'error');
+    }
+  }
+
+  async function toggleArchive(id){
+    const conv = state.conversations.find(c => c.id === id);
+    if(!conv) return;
+    try{
+      await fetch('/api/conversations/' + id, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: !conv.archived })
+      });
+      showToast(conv.archived ? 'Conversation unarchived' : 'Conversation archived', 'info');
+      if(id === state.conversationId){ state.conversationId = null; state.history = []; renderHistory(); }
+      loadConversationList();
+    }catch(err){
+      showToast('Could not update conversation', 'error');
+    }
+  }
+
+  async function deleteConversationUI(id){
+    if(!confirm('Delete this conversation? This cannot be undone from the UI.')) return;
+    try{
+      const res = await fetch('/api/conversations/' + id, { method: 'DELETE', credentials: 'include' });
+      if(!res.ok) throw new Error('Delete failed');
+      state.conversations = state.conversations.filter(c => c.id !== id);
+      renderConversationList();
+      if(id === state.conversationId){ state.conversationId = null; state.history = []; renderHistory(); document.getElementById('chatProviderPill').style.display = 'none'; }
+      showToast('Conversation deleted', 'info');
+    }catch(err){
+      showToast('Could not delete conversation', 'error');
+    }
+  }
+
+  const handleConvSearch = debounce(async (q) => {
+    state.convSearchQuery = q;
+    if(!q){ loadConversationList(); return; }
+    try{
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q), { credentials: 'include' });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error);
+      state.conversations = data.items;
+      state.convNextCursor = data.next_cursor;
+      renderConversationList();
+    }catch(err){ console.error('search failed:', err); }
+  }, 300);
+
+  document.getElementById('convSearchInput').addEventListener('input', (e) => handleConvSearch(e.target.value.trim()));
+  document.getElementById('convLoadMoreBtn').addEventListener('click', () => loadConversationList({ append: true }));
+  document.getElementById('convArchivedToggle').addEventListener('click', () => { state.convShowArchived = !state.convShowArchived; loadConversationList(); });
+  document.getElementById('convNewBtn').addEventListener('click', startNewConversation);
+
   /* ─────────────────────────── Chat persistence ─────────────────────────── */
   function loadStoredHistory(){
     try{
@@ -1155,7 +1395,7 @@
     state.history.push(userMsg);
     trimHistory();
     appendMessageDOM(userMsg, true);
-    persistHistory();
+    if(!persistenceAvailable()) persistHistory();
 
     chatInput.value = '';
     chatInput.style.height = 'auto';
@@ -1196,7 +1436,7 @@
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         signal: controller.signal,
-        body: JSON.stringify({ message: text, history: historyForRequest, model: state.selectedModel })
+        body: JSON.stringify({ message: text, history: historyForRequest, model: state.selectedModel, conversationId: state.conversationId })
       });
 
       if(!res.ok || !res.body){
@@ -1242,6 +1482,7 @@
 
           if(payload.done){
             providerLabel = payload.provider || '';
+            if(payload.conversationId) state.conversationId = payload.conversationId;
           }
         }
       }
@@ -1252,7 +1493,7 @@
       const finalMsg = { role: 'assistant', content: assistantText || '(empty response)', provider: providerLabel, ts: Date.now() };
       state.history.push(finalMsg);
       trimHistory();
-      persistHistory();
+      if(persistenceAvailable()) loadConversationList(); else persistHistory();
 
       // re-render last assistant bubble's meta info (provider tag + copy button)
       renderHistory();
@@ -1275,7 +1516,7 @@
           const stoppedMsg = { role: 'assistant', content: assistantText, provider: providerLabel || 'Stopped', ts: Date.now() };
           state.history.push(stoppedMsg);
           trimHistory();
-          persistHistory();
+          if(!persistenceAvailable()) persistHistory();
           renderHistory();
           scrollToBottom();
         }
@@ -1297,6 +1538,7 @@
   }
 
   document.getElementById('newChatBtn').addEventListener('click', () => {
+    if(persistenceAvailable()){ startNewConversation(); return; }
     if(activeChatController){ activeChatController._cancelReason = 'silent'; activeChatController.abort(); }
     state.history = [];
     persistHistory();
@@ -1306,6 +1548,7 @@
   });
 
   document.getElementById('clearChatBtn').addEventListener('click', () => {
+    if(persistenceAvailable()){ startNewConversation(); return; }
     if(activeChatController){ activeChatController._cancelReason = 'silent'; activeChatController.abort(); }
     state.history = [];
     persistHistory();
@@ -1314,9 +1557,33 @@
     showToast('Chat cleared', 'info');
   });
 
-  document.getElementById('exportChatBtn').addEventListener('click', () => {
+  document.getElementById('exportChatBtn').addEventListener('click', async () => {
     if(state.history.length === 0){
       showToast('Nothing to export', 'warning');
+      return;
+    }
+    if(persistenceAvailable() && state.conversationId){
+      try{
+        const res = await fetch('/api/export', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: state.conversationId, format: 'txt' })
+        });
+        if(!res.ok) throw new Error('Export failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'nova-ai-chat-' + Date.now() + '.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showToast('Chat exported', 'success');
+      }catch(err){
+        console.error('export failed:', err);
+        showToast('Could not export from the server', 'error');
+      }
       return;
     }
     const lines = state.history.map(m => '[' + formatTime(m.ts) + '] ' + (m.role === 'user' ? 'You' : 'Nova AI') + ': ' + m.content);
@@ -1331,6 +1598,7 @@
     URL.revokeObjectURL(url);
     showToast('Chat exported', 'success');
   });
+
 
   /* ─────────────────────────── Image generation ─────────────────────────── */
   let selectedSize = 512;
@@ -1473,14 +1741,25 @@
     }catch(e){ /* storage unavailable */ }
   }
 
-  function init(){
-    loadStoredHistory();
-    renderHistory();
+  async function init(){
     restoreDraft();
-    loadMe();
     loadModels();
     loadHealth();
     loadBillingTiers();
+
+    await loadMe(); // must resolve before we know guest vs authenticated-with-persistence
+
+    if(persistenceAvailable()){
+      await loadConversationList();
+      if(state.conversations.length > 0){
+        await selectConversation(state.conversations[0].id);
+      } else {
+        renderHistory(); // empty state; first message sent will auto-create a conversation
+      }
+    } else {
+      loadStoredHistory();
+      renderHistory();
+    }
   }
 
   init();
